@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Skin Recommendation Engine", page_icon="🧴", layout="centered")
+st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 # ────────────────────────────────────────────────
 #  LOAD PRODUCTS FROM FILE (your preferred way)
@@ -256,3 +256,4 @@ if query:
                 st.write(f"Notes: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

@@ -4,12 +4,12 @@ import pandas as pd
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 # ────────────────────────────────────────────────
-#  BIG VISIBLE WELCOME HEADER
+#  WELCOME HEADER (visible on page)
 # ────────────────────────────────────────────────
 st.title("Welcome to Skin Recommendation Engine")
 
 # ────────────────────────────────────────────────
-#  LOAD PRODUCTS (no message on page)
+#  LOAD PRODUCTS (terminal only, no page message)
 # ────────────────────────────────────────────────
 @st.cache_data
 def load_products():
@@ -19,7 +19,7 @@ def load_products():
             encoding='utf-8',
             on_bad_lines='warn'
         )
-        print(f"Loaded {len(df)} products")  # terminal only
+        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")  # console only
         return df
     except FileNotFoundError:
         st.error("File 'skincare_products_fixed.csv' not found.")
@@ -46,7 +46,7 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
     return True
 
 # ────────────────────────────────────────────────
-#  PICK PRODUCT WITH DETAILS
+#  PICK PRODUCT HELPER (fixed formatting)
 # ────────────────────────────────────────────────
 def pick_product(step_df, fallback_text, risk_flag=None):
     if step_df.empty:
@@ -58,16 +58,17 @@ def pick_product(step_df, fallback_text, risk_flag=None):
     else:
         row = step_df.sample(1).iloc[0]
 
+    # Clean formatting - use markdown line breaks
     details = (
-        f"**{row['product_id']} — {row['name']}**\n"
-        f"Recommended time: {row.get('recommended_time', 'Anytime')}\n"
-        f"Max frequency: {row.get('max_frequency', 'Daily')}\n"
-        f"Notes: {row.get('notes', 'No extra notes')}"
+        f"**{row['product_id']} — {row['name']}**  \n"
+        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
+        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
+        f"**Notes:** {row.get('notes', 'No extra notes')}"
     )
     return details, row['product_id']
 
 # ────────────────────────────────────────────────
-#  ROUTINE BUILDER (more forgiving)
+#  ROUTINE BUILDER
 # ────────────────────────────────────────────────
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     # Area filter
@@ -81,7 +82,7 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Super broad skin type fallback
+    # Broad skin type
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -89,15 +90,11 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # If still empty, fall back to ALL safe products
-    if filtered.empty:
-        filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
-
     # Default concern
     if not concerns:
         concerns = ["acne"] if skin_type == "Oily" else ["dryness"] if skin_type == "Dry" else ["dull"]
 
-    # Concerns filter (very loose)
+    # Concerns filter
     if concerns:
         filtered = filtered.reset_index(drop=True)
         mask = pd.Series([False] * len(filtered))
@@ -116,26 +113,19 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
                 mask |= filtered['key_actives'].str.contains(keywords, case=False, na=False)
         filtered = filtered[mask]
 
-    # Final fallback: if still empty, use ALL safe products
-    if filtered.empty:
-        filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
-
     routine = {}
     recommended_ids = []
 
-    # 1. Cleanse
     cleansers = filtered[filtered['step'].str.contains('Cleanse', case=False, na=False)]
     details, pid = pick_product(cleansers, "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
     routine['Cleanse'] = details
     if pid: recommended_ids.append(pid)
 
-    # 2. Tone
     toners = filtered[filtered['step'].str.contains('Tone|Exfoliate', case=False, na=False)]
     details, pid = pick_product(toners, "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
     routine['Tone'] = details
     if pid: recommended_ids.append(pid)
 
-    # 3. Treat
     treats = filtered[filtered['step'].str.contains('Treat', case=False, na=False)]
     if not treats.empty:
         if any("acne" in c for c in concerns):
@@ -151,13 +141,11 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     else:
         routine['Treat'] = "Targeted serum for your concern"
 
-    # 4. Moisturize
     moist = filtered[filtered['step'].str.contains('Moisturize', case=False, na=False)]
     details, pid = pick_product(moist, "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
     routine['Moisturize'] = details
     if pid: recommended_ids.append(pid)
 
-    # 5. Protect
     routine['Protect'] = "Broad-spectrum SPF 50+ every morning"
 
     return routine, recommended_ids
@@ -202,7 +190,6 @@ with st.form("skin_form"):
     submitted = st.form_submit_button("Get My Routine", type="primary")
 
 if submitted:
-    # Assign variables BEFORE calling build_routine
     is_sensitive_val = sensitive
     is_pregnant_val = pregnant
     using_prescription_val = prescription
@@ -225,7 +212,7 @@ if submitted:
 
         st.info("Start one new product at a time. Patch test. Be consistent.")
 
-        # Body add-on (only for Face)
+        # Body add-on
         if area == "Face":
             st.markdown("---")
             want_body = st.radio(
@@ -242,6 +229,16 @@ if submitted:
                     st.markdown(f"**{step}**  \n{details}")
             else:
                 st.info("Recommendation complete. Feel free to shop or rerun the quiz anytime!")
+
+        # ────────────────────────────────────────────────
+        #  YOUR NEXT SKIN GOALS (brought back)
+        # ────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("🌟 Your Next Skin Goals")
+        st.write("• Crystal clear skin")
+        st.write("• Natural glow")
+        st.write("• Youthful bounce")
+        st.success("Come back in 4–8 weeks for your upgraded routine. The best is coming! 🔜")
 
 # ────────────────────────────────────────────────
 #  SHOPPING MODE

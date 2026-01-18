@@ -4,12 +4,12 @@ import pandas as pd
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 # ────────────────────────────────────────────────
-#  VISIBLE WELCOME HEADER (only this shows on page)
+#  VISIBLE WELCOME (no extra text)
 # ────────────────────────────────────────────────
 st.title("Welcome to Skin Recommendation Engine")
 
 # ────────────────────────────────────────────────
-#  LOAD PRODUCTS (no visible message on page)
+#  LOAD PRODUCTS (terminal only)
 # ────────────────────────────────────────────────
 @st.cache_data
 def load_products():
@@ -19,7 +19,7 @@ def load_products():
             encoding='utf-8',
             on_bad_lines='warn'
         )
-        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")  # terminal only
+        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")
         return df
     except FileNotFoundError:
         st.error("File 'skincare_products_fixed.csv' not found.")
@@ -34,7 +34,19 @@ if df.empty:
     st.stop()
 
 # ────────────────────────────────────────────────
-#  HELPER: Pick product with full details
+#  SAFETY CHECK FUNCTION
+# ────────────────────────────────────────────────
+def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
+    if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
+        return False
+    if is_sensitive and row.get('safe_for_sensitive', '') != 'Yes':
+        return False
+    if using_prescription and (row.get('contains_retinol', '') == 'Yes' or row.get('contains_acid', '') == 'Yes'):
+        return False
+    return True
+
+# ────────────────────────────────────────────────
+#  PICK PRODUCT HELPER
 # ────────────────────────────────────────────────
 def pick_product(step_df, fallback_text, risk_flag=None):
     if step_df.empty:
@@ -42,10 +54,7 @@ def pick_product(step_df, fallback_text, risk_flag=None):
 
     if risk_flag == "Sensitive":
         safe = step_df[step_df['safe_for_sensitive'] == 'Yes']
-        if not safe.empty:
-            row = safe.sample(1).iloc[0]
-        else:
-            row = step_df.sample(1).iloc[0]
+        row = safe.sample(1).iloc[0] if not safe.empty else step_df.sample(1).iloc[0]
     else:
         row = step_df.sample(1).iloc[0]
 
@@ -58,9 +67,10 @@ def pick_product(step_df, fallback_text, risk_flag=None):
     return details, row['product_id']
 
 # ────────────────────────────────────────────────
-#  ROUTINE BUILDER
+#  BUILD ROUTINE
 # ────────────────────────────────────────────────
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
+    # Area filter
     if area == "Face":
         filtered = df[~df['name'].str.lower().str.contains('body', na=False)]
     elif area == "Body":
@@ -68,8 +78,13 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     else:
         filtered = df.copy()
 
-    filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
+    # Safety filter — defaults provided so lambda never fails
+    filtered = filtered[filtered.apply(
+        lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription),
+        axis=1
+    )]
 
+    # Broad skin type filter
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -77,9 +92,11 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
+    # Default concern
     if not concerns:
         concerns = ["acne"] if skin_type == "Oily" else ["dryness"] if skin_type == "Dry" else ["dull"]
 
+    # Concerns filter
     if concerns:
         filtered = filtered.reset_index(drop=True)
         mask = pd.Series([False] * len(filtered))
@@ -164,15 +181,28 @@ with st.form("skin_form"):
     submitted = st.form_submit_button("Get My Routine")
 
 if submitted:
+    # Assign variables BEFORE calling build_routine
+    is_sensitive_val = sensitive
+    is_pregnant_val = pregnant
+    using_prescription_val = prescription
+
     skin_type = skin_option
     concerns = [concern_main.lower()] if concern_main else []
 
-    if pregnant or prescription:
+    if is_pregnant_val or using_prescription_val:
         st.warning("Safety first! Please consult a doctor or dermatologist before starting new products.")
-    elif sensitive and len(concerns) > 2:
+    elif is_sensitive_val and len(concerns) > 2:
         st.warning("Multiple concerns + sensitivity — professional guidance recommended.")
     else:
-        routine, rec_ids = build_routine(df, skin_type, concerns, sensitive, pregnant, prescription, area)
+        routine, rec_ids = build_routine(
+            df,
+            skin_type,
+            concerns,
+            is_sensitive_val,
+            is_pregnant_val,
+            using_prescription_val,
+            area
+        )
 
         st.success("Here's your personalized routine:")
         for step, details in routine.items():
@@ -180,7 +210,7 @@ if submitted:
 
         st.info("Start one new product at a time. Patch test. Be consistent.")
 
-        # Body add-on (only for Face shoppers)
+        # Body add-on question (only if shopping for Face)
         if area == "Face":
             st.markdown("---")
             want_body = st.radio(
@@ -190,7 +220,9 @@ if submitted:
 
             if want_body == "Yes, show me":
                 st.subheader("Matching Body Products for Your Concern")
-                body_routine, _ = build_routine(df, skin_type, concerns, sensitive, pregnant, prescription, "Body")
+                body_routine, _ = build_routine(
+                    df, skin_type, concerns, is_sensitive_val, is_pregnant_val, using_prescription_val, "Body"
+                )
                 for step, details in body_routine.items():
                     if "Gentle" not in details and "Hydrating" not in details and "Suitable" not in details:
                         st.markdown(f"**{step}**  \n{details}")

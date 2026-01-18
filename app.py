@@ -4,12 +4,12 @@ import pandas as pd
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 # ────────────────────────────────────────────────
-#  VISIBLE WELCOME (no extra text)
+#  BIG VISIBLE WELCOME HEADER
 # ────────────────────────────────────────────────
 st.title("Welcome to Skin Recommendation Engine")
 
 # ────────────────────────────────────────────────
-#  LOAD PRODUCTS (terminal only)
+#  LOAD PRODUCTS (no message on page)
 # ────────────────────────────────────────────────
 @st.cache_data
 def load_products():
@@ -19,7 +19,7 @@ def load_products():
             encoding='utf-8',
             on_bad_lines='warn'
         )
-        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")
+        print(f"Loaded {len(df)} products")  # terminal only
         return df
     except FileNotFoundError:
         st.error("File 'skincare_products_fixed.csv' not found.")
@@ -34,7 +34,7 @@ if df.empty:
     st.stop()
 
 # ────────────────────────────────────────────────
-#  SAFETY CHECK FUNCTION
+#  SAFETY CHECK
 # ────────────────────────────────────────────────
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
@@ -46,7 +46,7 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
     return True
 
 # ────────────────────────────────────────────────
-#  PICK PRODUCT HELPER
+#  PICK PRODUCT WITH DETAILS
 # ────────────────────────────────────────────────
 def pick_product(step_df, fallback_text, risk_flag=None):
     if step_df.empty:
@@ -67,7 +67,7 @@ def pick_product(step_df, fallback_text, risk_flag=None):
     return details, row['product_id']
 
 # ────────────────────────────────────────────────
-#  BUILD ROUTINE
+#  ROUTINE BUILDER (more forgiving)
 # ────────────────────────────────────────────────
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     # Area filter
@@ -78,13 +78,10 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     else:
         filtered = df.copy()
 
-    # Safety filter — defaults provided so lambda never fails
-    filtered = filtered[filtered.apply(
-        lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription),
-        axis=1
-    )]
+    # Safety
+    filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Broad skin type filter
+    # Super broad skin type fallback
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -92,11 +89,15 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
+    # If still empty, fall back to ALL safe products
+    if filtered.empty:
+        filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
+
     # Default concern
     if not concerns:
         concerns = ["acne"] if skin_type == "Oily" else ["dryness"] if skin_type == "Dry" else ["dull"]
 
-    # Concerns filter
+    # Concerns filter (very loose)
     if concerns:
         filtered = filtered.reset_index(drop=True)
         mask = pd.Series([False] * len(filtered))
@@ -115,25 +116,32 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
                 mask |= filtered['key_actives'].str.contains(keywords, case=False, na=False)
         filtered = filtered[mask]
 
+    # Final fallback: if still empty, use ALL safe products
+    if filtered.empty:
+        filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
+
     routine = {}
     recommended_ids = []
 
-    cleansers = filtered[filtered['step'] == '1. Cleanse']
+    # 1. Cleanse
+    cleansers = filtered[filtered['step'].str.contains('Cleanse', case=False, na=False)]
     details, pid = pick_product(cleansers, "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
     routine['Cleanse'] = details
     if pid: recommended_ids.append(pid)
 
-    toners = filtered[filtered['step'] == '2. Tone/Exfoliate']
+    # 2. Tone
+    toners = filtered[filtered['step'].str.contains('Tone|Exfoliate', case=False, na=False)]
     details, pid = pick_product(toners, "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
     routine['Tone'] = details
     if pid: recommended_ids.append(pid)
 
-    treats = filtered[filtered['step'] == '3. Treat']
+    # 3. Treat
+    treats = filtered[filtered['step'].str.contains('Treat', case=False, na=False)]
     if not treats.empty:
-        if "acne" in concerns:
+        if any("acne" in c for c in concerns):
             acne_treats = treats[treats['key_actives'].str.contains('salicylic|benzoyl|niacinamide', case=False, na=False)]
             details, pid = pick_product(acne_treats if not acne_treats.empty else treats, "Serum for acne")
-        elif "dark spots / uneven tone" in concerns:
+        elif any("dark spot" in c or "melasma" in c for c in concerns):
             pigment_treats = treats[treats['key_actives'].str.contains('arbutin|tranexamic|niacinamide|vitamin c', case=False, na=False)]
             details, pid = pick_product(pigment_treats if not pigment_treats.empty else treats, "Serum for pigmentation")
         else:
@@ -143,11 +151,13 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     else:
         routine['Treat'] = "Targeted serum for your concern"
 
-    moist = filtered[filtered['step'] == '4. Moisturize']
+    # 4. Moisturize
+    moist = filtered[filtered['step'].str.contains('Moisturize', case=False, na=False)]
     details, pid = pick_product(moist, "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
     routine['Moisturize'] = details
     if pid: recommended_ids.append(pid)
 
+    # 5. Protect
     routine['Protect'] = "Broad-spectrum SPF 50+ every morning"
 
     return routine, recommended_ids
@@ -169,7 +179,18 @@ with st.form("skin_form"):
         skin_option = st.selectbox("Best match?", ["Oily", "Dry", "Combination", "Normal"])
 
     st.subheader("What is the main issue you want to fix right now?")
-    concern_main = st.text_input("Tell me freely (e.g., acne and dark spots)")
+    concern_options = [
+        "Acne / breakouts",
+        "Dark spots / uneven tone / melasma",
+        "Dryness / dehydration",
+        "Texture / rough skin",
+        "Aging / fine lines",
+        "Sensitivity / irritation",
+        "Dull skin",
+        "Damaged barrier",
+        "None"
+    ]
+    selected_concerns = st.multiselect("Select all that apply:", concern_options)
 
     st.subheader("Any of these apply to you?")
     sensitive = st.checkbox("My skin reacts easily / is sensitive")
@@ -178,7 +199,7 @@ with st.form("skin_form"):
 
     area = st.radio("Where are you shopping today?", ("Face", "Body", "Both"))
 
-    submitted = st.form_submit_button("Get My Routine")
+    submitted = st.form_submit_button("Get My Routine", type="primary")
 
 if submitted:
     # Assign variables BEFORE calling build_routine
@@ -187,7 +208,7 @@ if submitted:
     using_prescription_val = prescription
 
     skin_type = skin_option
-    concerns = [concern_main.lower()] if concern_main else []
+    concerns = [c.lower() for c in selected_concerns if c != "None"]
 
     if is_pregnant_val or using_prescription_val:
         st.warning("Safety first! Please consult a doctor or dermatologist before starting new products.")
@@ -195,13 +216,7 @@ if submitted:
         st.warning("Multiple concerns + sensitivity — professional guidance recommended.")
     else:
         routine, rec_ids = build_routine(
-            df,
-            skin_type,
-            concerns,
-            is_sensitive_val,
-            is_pregnant_val,
-            using_prescription_val,
-            area
+            df, skin_type, concerns, is_sensitive_val, is_pregnant_val, using_prescription_val, area
         )
 
         st.success("Here's your personalized routine:")
@@ -210,7 +225,7 @@ if submitted:
 
         st.info("Start one new product at a time. Patch test. Be consistent.")
 
-        # Body add-on question (only if shopping for Face)
+        # Body add-on (only for Face)
         if area == "Face":
             st.markdown("---")
             want_body = st.radio(
@@ -224,10 +239,7 @@ if submitted:
                     df, skin_type, concerns, is_sensitive_val, is_pregnant_val, using_prescription_val, "Body"
                 )
                 for step, details in body_routine.items():
-                    if "Gentle" not in details and "Hydrating" not in details and "Suitable" not in details:
-                        st.markdown(f"**{step}**  \n{details}")
-                    else:
-                        st.write(f"**{step}**  \n{details}")
+                    st.markdown(f"**{step}**  \n{details}")
             else:
                 st.info("Recommendation complete. Feel free to shop or rerun the quiz anytime!")
 

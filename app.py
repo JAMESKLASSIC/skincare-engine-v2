@@ -3,6 +3,14 @@ import pandas as pd
 
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
+# ────────────────────────────────────────────────
+#  VISIBLE WELCOME HEADER (only this shows on page)
+# ────────────────────────────────────────────────
+st.title("Welcome to Skin Recommendation Engine")
+
+# ────────────────────────────────────────────────
+#  LOAD PRODUCTS (no visible message on page)
+# ────────────────────────────────────────────────
 @st.cache_data
 def load_products():
     try:
@@ -11,10 +19,10 @@ def load_products():
             encoding='utf-8',
             on_bad_lines='warn'
         )
-        st.success(f"Loaded {len(df)} products")
+        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")  # terminal only
         return df
     except FileNotFoundError:
-        st.error("File 'skincare_products_fixed.csv' not found. Please upload it.")
+        st.error("File 'skincare_products_fixed.csv' not found.")
         return pd.DataFrame()
     except Exception as e:
         st.error(f"Error loading CSV: {str(e)}")
@@ -26,21 +34,11 @@ if df.empty:
     st.stop()
 
 # ────────────────────────────────────────────────
-#  HELPER FUNCTIONS
+#  HELPER: Pick product with full details
 # ────────────────────────────────────────────────
-def is_safe(row, is_sensitive, is_pregnant, using_prescription):
-    if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
-        return False
-    if is_sensitive and row.get('safe_for_sensitive', '') != 'Yes':
-        return False
-    if using_prescription and (row.get('contains_retinol', '') == 'Yes' or row.get('contains_acid', '') == 'Yes'):
-        return False
-    return True
-
-
 def pick_product(step_df, fallback_text, risk_flag=None):
     if step_df.empty:
-        return fallback_text
+        return fallback_text, None
 
     if risk_flag == "Sensitive":
         safe = step_df[step_df['safe_for_sensitive'] == 'Yes']
@@ -51,44 +49,37 @@ def pick_product(step_df, fallback_text, risk_flag=None):
     else:
         row = step_df.sample(1).iloc[0]
 
-    return (
+    details = (
         f"**{row['product_id']} — {row['name']}**\n"
         f"Recommended time: {row.get('recommended_time', 'Anytime')}\n"
         f"Max frequency: {row.get('max_frequency', 'Daily')}\n"
         f"Notes: {row.get('notes', 'No extra notes')}"
     )
-
+    return details, row['product_id']
 
 # ────────────────────────────────────────────────
-#  ROUTINE BUILDER — now shows real usage info
+#  ROUTINE BUILDER
 # ────────────────────────────────────────────────
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
-    # Very relaxed area filter
     if area == "Face":
-        filtered = df[~df['name'].str.lower().str.contains('body wash|shower gel', na=False)]
+        filtered = df[~df['name'].str.lower().str.contains('body', na=False)]
     elif area == "Body":
         filtered = df[df['name'].str.lower().str.contains('body', na=False)]
     else:
         filtered = df.copy()
 
-    # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Very broad skin type filter
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
     elif skin_type == "Dry":
         type_pattern += '|Dry'
-    filtered = filtered[
-        filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)
-    ]
+    filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Default concern
     if not concerns:
         concerns = ["acne"] if skin_type == "Oily" else ["dryness"] if skin_type == "Dry" else ["dull"]
 
-    # Concerns filter — loose
     if concerns:
         filtered = filtered.reset_index(drop=True)
         mask = pd.Series([False] * len(filtered))
@@ -107,77 +98,49 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
                 mask |= filtered['key_actives'].str.contains(keywords, case=False, na=False)
         filtered = filtered[mask]
 
-    recommended_products = []
+    routine = {}
+    recommended_ids = []
 
-    # 1. Cleanse
-    cleansers = filtered[filtered['step'].str.contains('Cleanse', na=False)]
-    routine_cleanse = pick_product(cleansers, "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
-    st.write(f"**1. Cleanse**  \n{routine_cleanse}")
-    if "Gentle" not in routine_cleanse:
-        recommended_products.append(routine_cleanse.split('\n')[0])
+    cleansers = filtered[filtered['step'] == '1. Cleanse']
+    details, pid = pick_product(cleansers, "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
+    routine['Cleanse'] = details
+    if pid: recommended_ids.append(pid)
 
-    # 2. Tone
-    toners = filtered[filtered['step'].str.contains('Tone|Exfoliate', na=False)]
-    routine_tone = pick_product(toners, "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
-    st.write(f"**2. Tone**  \n{routine_tone}")
-    if "Hydrating" not in routine_tone:
-        recommended_products.append(routine_tone.split('\n')[0])
+    toners = filtered[filtered['step'] == '2. Tone/Exfoliate']
+    details, pid = pick_product(toners, "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
+    routine['Tone'] = details
+    if pid: recommended_ids.append(pid)
 
-    # 3. Treat
-    treats = filtered[filtered['step'].str.contains('Treat', na=False)]
+    treats = filtered[filtered['step'] == '3. Treat']
     if not treats.empty:
-        chosen_row = treats.sample(1).iloc[0]
-        routine_treat = (
-            f"**{chosen_row['product_id']} — {chosen_row['name']}**  \n"
-            f"Recommended time: {chosen_row.get('recommended_time', 'Anytime')}  \n"
-            f"Max frequency: {chosen_row.get('max_frequency', 'Daily')}  \n"
-            f"Notes: {chosen_row.get('notes', 'No extra notes')}"
-        )
-        st.write(f"**3. Treat**  \n{routine_treat}")
-        recommended_products.append(routine_treat.split('\n')[0])
+        if "acne" in concerns:
+            acne_treats = treats[treats['key_actives'].str.contains('salicylic|benzoyl|niacinamide', case=False, na=False)]
+            details, pid = pick_product(acne_treats if not acne_treats.empty else treats, "Serum for acne")
+        elif "dark spots / uneven tone" in concerns:
+            pigment_treats = treats[treats['key_actives'].str.contains('arbutin|tranexamic|niacinamide|vitamin c', case=False, na=False)]
+            details, pid = pick_product(pigment_treats if not pigment_treats.empty else treats, "Serum for pigmentation")
+        else:
+            details, pid = pick_product(treats, "Targeted serum")
+        routine['Treat'] = details
+        if pid: recommended_ids.append(pid)
     else:
-        st.write("**3. Treat**  \nTargeted serum for your concern")
+        routine['Treat'] = "Targeted serum for your concern"
 
-    # 4. Moisturize
-    moisturizers = filtered[filtered['step'].str.contains('Moisturize', na=False)]
-    routine_moist = pick_product(moisturizers, "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
-    st.write(f"**4. Moisturize**  \n{routine_moist}")
-    if "Suitable" not in routine_moist:
-        recommended_products.append(routine_moist.split('\n')[0])
+    moist = filtered[filtered['step'] == '4. Moisturize']
+    details, pid = pick_product(moist, "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
+    routine['Moisturize'] = details
+    if pid: recommended_ids.append(pid)
 
-    # 5. Protect
-    st.write("**5. Protect**  \nBroad-spectrum SPF 50+ every morning")
+    routine['Protect'] = "Broad-spectrum SPF 50+ every morning"
 
-    st.info("Start one new product at a time. Patch test. Consistency wins.")
-
-    # ────────────────────────────────────────────────
-    #  PRODUCTS GRID — now always shows real picks
-    # ────────────────────────────────────────────────
-    st.markdown("---")
-    st.subheader("🛒 Products Recommended for You")
-
-    if recommended_products:
-        st.write("These are the actual products picked for your routine (with usage info):")
-        for item in recommended_products:
-            st.markdown(item)
-    else:
-        st.info("No exact product matches for your exact input — general guidance provided above.")
-
-    # Next Goals teaser
-    st.markdown("---")
-    st.subheader("🌟 Your Next Skin Goals")
-    st.write("• Crystal clear skin")
-    st.write("• Natural glow")
-    st.write("• Youthful bounce")
-    st.success("Come back in 4–8 weeks for your upgraded routine. The best is coming! 🔜")
-
+    return routine, recommended_ids
 
 # ────────────────────────────────────────────────
-#  MAIN FORM (same as before)
+#  MAIN FORM
 # ────────────────────────────────────────────────
 with st.form("skin_form"):
-    st.subheader("Your Skin Type")
-    skin_option = st.selectbox("Select:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])
+    st.subheader("How would you describe your skin?")
+    skin_option = st.selectbox("Select one:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])
 
     if skin_option == "Not sure":
         st.info("Quick guide:\n\n"
@@ -185,73 +148,74 @@ with st.form("skin_form"):
                 "- Dry: tight, flaky\n"
                 "- Combination: oily T-zone, dry cheeks\n"
                 "- Normal: balanced\n\n"
-                "Which one feels closest?")
+                "Which feels closest?")
         skin_option = st.selectbox("Best match?", ["Oily", "Dry", "Combination", "Normal"])
 
-    st.subheader("Current Concerns")
-    concern_options = [
-        "Acne / breakouts",
-        "Dark spots / hyperpigmentation / melasma",
-        "Dryness / dehydration",
-        "Dull skin",
-        "Uneven texture / rough skin",
-        "Aging / fine lines",
-        "Sensitivity / irritation",
-        "Damaged barrier",
-        "None"
-    ]
-    selected_concerns = st.multiselect("Select all:", concern_options)
+    st.subheader("What is the main issue you want to fix right now?")
+    concern_main = st.text_input("Tell me freely (e.g., acne and dark spots)")
 
-    st.subheader("Any apply?")
-    sensitive = st.checkbox("Skin reacts easily")
-    pregnant = st.checkbox("Pregnant / breastfeeding")
-    prescription = st.checkbox("Using prescription skincare")
+    st.subheader("Any of these apply to you?")
+    sensitive = st.checkbox("My skin reacts easily / is sensitive")
+    pregnant = st.checkbox("I’m pregnant or breastfeeding")
+    prescription = st.checkbox("I’m currently using prescription products")
 
-    area = st.radio("Shopping for:", ("Face", "Body", "Both"))
+    area = st.radio("Where are you shopping today?", ("Face", "Body", "Both"))
 
-    submitted = st.form_submit_button("Get Routine", type="primary")
+    submitted = st.form_submit_button("Get My Routine")
 
 if submitted:
-    concerns_map = {
-        "Acne / breakouts": "acne",
-        "Dark spots / hyperpigmentation / melasma": "dark spots / uneven tone",
-        "Dryness / dehydration": "dryness",
-        "Dull skin": "dull",
-        "Uneven texture / rough skin": "texture / rough skin",
-        "Aging / fine lines": "aging",
-        "Sensitivity / irritation": "sensitivity",
-        "Damaged barrier": "barrier damage"
-    }
-    concerns = [concerns_map.get(c) for c in selected_concerns if c != "None"]
+    skin_type = skin_option
+    concerns = [concern_main.lower()] if concern_main else []
 
-    is_sensitive = sensitive
-    is_pregnant = pregnant
-    using_prescription = prescription
-
-    if is_pregnant or using_prescription:
-        st.warning("Safety first! Consult doctor.")
-    elif is_sensitive and len(concerns) > 2:
-        st.warning("Complex concerns — seek professional advice.")
+    if pregnant or prescription:
+        st.warning("Safety first! Please consult a doctor or dermatologist before starting new products.")
+    elif sensitive and len(concerns) > 2:
+        st.warning("Multiple concerns + sensitivity — professional guidance recommended.")
     else:
-        build_routine(df, skin_option, concerns, is_sensitive, is_pregnant, using_prescription, area)
+        routine, rec_ids = build_routine(df, skin_type, concerns, sensitive, pregnant, prescription, area)
 
-# Shopping section
+        st.success("Here's your personalized routine:")
+        for step, details in routine.items():
+            st.markdown(f"**{step}**  \n{details}")
+
+        st.info("Start one new product at a time. Patch test. Be consistent.")
+
+        # Body add-on (only for Face shoppers)
+        if area == "Face":
+            st.markdown("---")
+            want_body = st.radio(
+                "Would you like matching body products that suit your current face challenge?",
+                ("No thanks", "Yes, show me")
+            )
+
+            if want_body == "Yes, show me":
+                st.subheader("Matching Body Products for Your Concern")
+                body_routine, _ = build_routine(df, skin_type, concerns, sensitive, pregnant, prescription, "Body")
+                for step, details in body_routine.items():
+                    if "Gentle" not in details and "Hydrating" not in details and "Suitable" not in details:
+                        st.markdown(f"**{step}**  \n{details}")
+                    else:
+                        st.write(f"**{step}**  \n{details}")
+            else:
+                st.info("Recommendation complete. Feel free to shop or rerun the quiz anytime!")
+
+# ────────────────────────────────────────────────
+#  SHOPPING MODE
+# ────────────────────────────────────────────────
 st.markdown("---")
 st.subheader("🛒 Browse Products")
-query = st.text_input("Search keyword")
+query = st.text_input("Search by keyword (e.g., cleanser, niacinamide, vitamin c)")
 if query:
     matches = df[df['name'].str.lower().str.contains(query.lower(), na=False)]
     if matches.empty:
-        st.info("No matches — try another word")
+        st.info("No matches found. Try another keyword.")
     else:
         for _, p in matches.iterrows():
             with st.expander(f"{p['product_id']} — {p['name']}"):
-                st.write(f"Best for: {p['primary_target']}")
-                st.write(f"Key actives: {p['key_actives']}")
-                st.write(f"Recommended time: {p.get('recommended_time', 'Anytime')}")
-                st.write(f"Max frequency: {p.get('max_frequency', 'Daily')}")
-                st.write(f"Notes: {p.get('notes', 'No extra notes')}")
+                st.write(f"**Best for**: {p['primary_target']}")
+                st.write(f"**Key ingredients**: {p['key_actives']}")
+                st.write(f"**Recommended time**: {p.get('recommended_time', 'Anytime')}")
+                st.write(f"**Max frequency**: {p.get('max_frequency', 'Daily')}")
+                st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-
-

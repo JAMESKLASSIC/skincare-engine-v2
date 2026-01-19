@@ -1,40 +1,89 @@
 import streamlit as st
 import pandas as pd
-
-st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
+from io import StringIO
 
 # ────────────────────────────────────────────────
-#  WELCOME HEADER (visible on page)
+#  PAGE CONFIG
+# ────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Skin Recommendation Engine",
+    page_icon="🧴",
+    layout="centered"
+)
+
+# ────────────────────────────────────────────────
+#  WELCOME HEADER
 # ────────────────────────────────────────────────
 st.title("Welcome to Skin Recommendation Engine")
 
 # ────────────────────────────────────────────────
-#  LOAD PRODUCTS (terminal only)
+#  DEMO MODE TOGGLE (visible only to you)
 # ────────────────────────────────────────────────
-@st.cache_data
-def load_products():
-    try:
-        df = pd.read_csv(
-            "skincare_products_fixed.csv",
-            encoding='utf-8',
-            on_bad_lines='warn'
-        )
-        print(f"Loaded {len(df)} products from skincare_products_fixed.csv")
-        return df
-    except FileNotFoundError:
-        st.error("File 'skincare_products_fixed.csv' not found.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error loading CSV: {str(e)}")
-        return pd.DataFrame()
+demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 
-df = load_products()
+if demo_mode:
+    st.info(
+        "This demo is using a seller's uploaded inventory. "
+        "In production, this would be integrated directly into your store."
+    )
+
+# ────────────────────────────────────────────────
+#  DYNAMIC CSV LOADER
+# ────────────────────────────────────────────────
+st.subheader("Load Product Inventory")
+
+use_default = st.radio(
+    "Which inventory?",
+    ("Default (skincare_products_fixed.csv)", "Upload seller's CSV")
+)
+
+if use_default == "Default (skincare_products_fixed.csv)":
+    @st.cache_data
+    def load_default():
+        try:
+            df = pd.read_csv(
+                "skincare_products_fixed.csv",
+                encoding='utf-8',
+                on_bad_lines='warn'
+            )
+            print(f"Loaded default: {len(df)} products")
+            return df
+        except Exception as e:
+            st.error(f"Default CSV error: {str(e)}")
+            return pd.DataFrame()
+
+    df = load_default()
+
+else:
+    uploaded_file = st.file_uploader(
+        "Upload seller's CSV",
+        type=["csv"],
+        help="Must include columns: product_id, name, step, key_actives, recommended_time, max_frequency, notes, etc."
+    )
+
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(
+                uploaded_file,
+                encoding='utf-8',
+                on_bad_lines='warn'
+            )
+            st.success(f"Loaded {len(df)} products from uploaded file")
+            with st.expander("Preview first 5 rows"):
+                st.dataframe(df.head())
+        except Exception as e:
+            st.error(f"Upload error: {str(e)}")
+            df = pd.DataFrame()
+    else:
+        st.info("Upload a CSV to use a seller's inventory.")
+        df = pd.DataFrame()
 
 if df.empty:
+    st.warning("No products loaded. Please upload or use default.")
     st.stop()
 
 # ────────────────────────────────────────────────
-#  SAFETY CHECK
+#  SAFETY & PICK HELPER (same as before)
 # ────────────────────────────────────────────────
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
@@ -45,17 +94,7 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
         return False
     return True
 
-# ────────────────────────────────────────────────
-#  PICK PRODUCT (now extremely forgiving)
-# ────────────────────────────────────────────────
-def pick_product(df_filtered, step_keywords, fallback_text, risk_flag=None):
-    # Try to match step keywords (case-insensitive, partial match)
-    step_df = df_filtered[df_filtered['step'].str.contains(step_keywords, case=False, na=False)]
-
-    # If no step match, fall back to ANY product in filtered df
-    if step_df.empty:
-        step_df = df_filtered
-
+def pick_product(step_df, fallback_text, risk_flag=None):
     if step_df.empty:
         return fallback_text, None
 
@@ -74,10 +113,9 @@ def pick_product(df_filtered, step_keywords, fallback_text, risk_flag=None):
     return details, row['product_id']
 
 # ────────────────────────────────────────────────
-#  ROUTINE BUILDER (super permissive)
+#  ROUTINE BUILDER (same logic, robust)
 # ────────────────────────────────────────────────
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
-    # Area filter
     if area == "Face":
         filtered = df[~df['name'].str.lower().str.contains('body', na=False)]
     elif area == "Body":
@@ -85,10 +123,8 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     else:
         filtered = df.copy()
 
-    # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Very broad skin type fallback
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -96,15 +132,12 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Final fallback if empty
     if filtered.empty:
         filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Default concern
     if not concerns:
         concerns = ["acne"] if skin_type == "Oily" else ["dryness"] if skin_type == "Dry" else ["dull"]
 
-    # Concerns filter (loose)
     if concerns:
         filtered = filtered.reset_index(drop=True)
         mask = pd.Series([False] * len(filtered))
@@ -123,34 +156,39 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
                 mask |= filtered['key_actives'].str.contains(keywords, case=False, na=False)
         filtered = filtered[mask]
 
-    # Ultimate fallback
-    if filtered.empty:
-        filtered = df[df.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
-
     routine = {}
     recommended_ids = []
 
-    # 1. Cleanse
-    details, pid = pick_product(filtered, "Cleanse", "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
+    cleansers = filtered[filtered['step'].str.contains('Cleanse', case=False, na=False)]
+    details, pid = pick_product(cleansers, "Gentle gel or cream cleanser", "Sensitive" if is_sensitive else None)
     routine['Cleanse'] = details
     if pid: recommended_ids.append(pid)
 
-    # 2. Tone
-    details, pid = pick_product(filtered, "Tone|Exfoliate", "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
+    toners = filtered[filtered['step'].str.contains('Tone|Exfoliate', case=False, na=False)]
+    details, pid = pick_product(toners, "Hydrating, alcohol-free toner", "Sensitive" if is_sensitive else None)
     routine['Tone'] = details
     if pid: recommended_ids.append(pid)
 
-    # 3. Treat
-    details, pid = pick_product(filtered, "Treat", "Targeted serum for your concern", "Sensitive" if is_sensitive else None)
-    routine['Treat'] = details
-    if pid: recommended_ids.append(pid)
+    treats = filtered[filtered['step'].str.contains('Treat', case=False, na=False)]
+    if not treats.empty:
+        if any("acne" in c for c in concerns):
+            acne_treats = treats[treats['key_actives'].str.contains('salicylic|benzoyl|niacinamide', case=False, na=False)]
+            details, pid = pick_product(acne_treats if not acne_treats.empty else treats, "Serum for acne")
+        elif any("dark spot" in c or "melasma" in c for c in concerns):
+            pigment_treats = treats[treats['key_actives'].str.contains('arbutin|tranexamic|niacinamide|vitamin c', case=False, na=False)]
+            details, pid = pick_product(pigment_treats if not pigment_treats.empty else treats, "Serum for pigmentation")
+        else:
+            details, pid = pick_product(treats, "Targeted serum")
+        routine['Treat'] = details
+        if pid: recommended_ids.append(pid)
+    else:
+        routine['Treat'] = "Targeted serum for your concern"
 
-    # 4. Moisturize
-    details, pid = pick_product(filtered, "Moisturize", "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
+    moist = filtered[filtered['step'].str.contains('Moisturize', case=False, na=False)]
+    details, pid = pick_product(moist, "Suitable moisturizer for your skin type", "Sensitive" if is_sensitive else None)
     routine['Moisturize'] = details
     if pid: recommended_ids.append(pid)
 
-    # 5. Protect
     routine['Protect'] = "Broad-spectrum SPF 50+ every morning"
 
     return routine, recommended_ids
@@ -235,15 +273,10 @@ if submitted:
             else:
                 st.info("Recommendation complete. Feel free to shop or rerun the quiz anytime!")
 
-        # ────────────────────────────────────────────────
-        #  YOUR NEXT SKIN GOALS
-        # ────────────────────────────────────────────────
+        # Export button
         st.markdown("---")
-        st.subheader("🌟 Your Next Skin Goals")
-        st.write("• Crystal clear skin")
-        st.write("• Natural glow")
-        st.write("• Youthful bounce")
-        st.success("Come back in 4–8 weeks for your upgraded routine. The best is coming! 🔜")
+        if st.button("Export Routine as PDF (for seller)"):
+            st.info("PDF export coming soon — for now screenshot or copy text.")
 
 # ────────────────────────────────────────────────
 #  SHOPPING MODE

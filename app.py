@@ -5,11 +5,12 @@ st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
 
+# Demo mode toggle
 demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
-# Load inventory
+# Dynamic CSV loader
 st.subheader("Load Product Inventory")
 use_default = st.radio("Which inventory?", ("Default (skincare_products_fixed.csv)", "Upload seller's CSV"))
 
@@ -18,7 +19,7 @@ df = pd.DataFrame()
 if use_default == "Default (skincare_products_fixed.csv)":
     try:
         df = pd.read_csv("skincare_products_fixed.csv", encoding='utf-8', on_bad_lines='warn')
-        st.success(f"Loaded {len(df)} products")
+        st.success(f"Loaded {len(df)} products from default file")
     except Exception as e:
         st.error(f"Default file error: {str(e)}")
 else:
@@ -26,8 +27,8 @@ else:
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='warn')
-            st.success(f"Loaded {len(df)} products")
-            with st.expander("Preview"):
+            st.success(f"Loaded {len(df)} products from uploaded file")
+            with st.expander("Preview first 5 rows"):
                 st.dataframe(df.head())
         except Exception as e:
             st.error(f"Upload error: {str(e)}")
@@ -36,7 +37,7 @@ if df.empty:
     st.warning("No products loaded. Upload a CSV or use default.")
     st.stop()
 
-# Mojibake cleanup
+# Quick mojibake cleanup (in case encoding is still off)
 df['notes'] = df['notes'].astype(str).replace({
     r'â|â': '—',
     r'â': "'",
@@ -46,6 +47,7 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
+# Safety check — allow Yes and Yes with caution
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
         return False
@@ -57,6 +59,7 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
             return False
     return True
 
+# Caution note helper
 def get_caution_note(row, is_sensitive):
     if not is_sensitive:
         return ""
@@ -65,6 +68,7 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
+# Pick product from category
 def pick_product(filtered_df, category_keywords, fallback_text, is_sensitive):
     candidates = filtered_df[
         filtered_df['name'].str.contains(category_keywords, case=False, na=False) |
@@ -93,16 +97,20 @@ def pick_product(filtered_df, category_keywords, fallback_text, is_sensitive):
     )
     return details, row['product_id']
 
+# Routine builder
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
+    # Area filter
     if area == "Face":
         filtered = filtered[~filtered['name'].str.lower().str.contains('body', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
 
+    # Safety filter
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
+    # Skin type filter
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -114,52 +122,49 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         st.warning("No safe products match your profile.")
         return {}
 
-   
+    # Concerns filter — fixed to work for all options
     if concerns:
-    filtered = filtered.reset_index(drop=True)
-    keep_rows = pd.Series(False, index=filtered.index)  # Safe boolean with correct index
+        keep_rows = pd.Series(False, index=filtered.index)
+        for concern in concerns:
+            concern = concern.lower().strip()
+            if "acne" in concern or "breakout" in concern:
+                k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
+            elif "dark spot" in concern or "uneven tone" in concern or "melasma" in concern or "pigment" in concern:
+                k = "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice"
+            elif "dryness" in concern or "dehydration" in concern:
+                k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
+            elif "texture" in concern or "rough" in concern:
+                k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
+            elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
+                k = "anti-aging|retinol|firming|wrinkle"
+            elif "sensitivity" in concern or "irritation" in concern:
+                k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
+            elif "dull" in concern:
+                k = "dull|glow|radiance|vitamin c"
+            elif "barrier" in concern or "damaged" in concern:
+                k = "barrier|ceramide|repair|restore"
+            else:
+                k = ""
+            if k:
+                keep_rows |= (
+                    filtered['primary_target'].str.contains(k, case=False, na=False) |
+                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
+                    filtered['key_actives'].str.contains(k, case=False, na=False)
+                )
+        filtered = filtered[keep_rows]
 
-    for concern in concerns:
-        concern = concern.lower().strip()
-        if "acne" in concern or "breakout" in concern:
-            k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
-        elif "dark spot" in concern or "uneven tone" in concern or "melasma" in concern or "pigment" in concern:
-            k = "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice"
-        elif "dryness" in concern or "dehydration" in concern:
-            k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
-        elif "texture" in concern or "rough" in concern:
-            k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
-        elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
-            k = "anti-aging|retinol|firming|wrinkle"
-        elif "sensitivity" in concern or "irritation" in concern:
-            k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
-        elif "dull" in concern:
-            k = "dull|glow|radiance|vitamin c"
-        elif "barrier" in concern or "damaged" in concern:
-            k = "barrier|ceramide|repair|restore"
-        else:
-            k = ""
-
-        if k:
-            keep_rows |= (
-                filtered['primary_target'].str.contains(k, case=False, na=False) |
-                filtered['secondary_target'].str.contains(k, case=False, na=False) |
-                filtered['key_actives'].str.contains(k, case=False, na=False)
-            )
-
-    filtered = filtered[keep_rows]
-    
     routine = {}
 
-    routine['Cleanse'] = pick_product(filtered, "cleanser|wash|foam", "Gentle cleanser", is_sensitive)
-    routine['Tone'] = pick_product(filtered, "toner|essence", "Hydrating toner", is_sensitive)
+    # Assign categories by keywords
+    routine['Cleanse'] = pick_product(filtered, "cleanser|wash|foam|cleanse", "Gentle cleanser", is_sensitive)
+    routine['Tone'] = pick_product(filtered, "toner|essence|boost", "Hydrating toner", is_sensitive)
     routine['Treat'] = pick_product(filtered, "serum|ampoule|treatment|fade spots|brightening|niacinamide|txa|arbutin|kojic|vitamin c", "Targeted serum", is_sensitive)
     routine['Moisturize'] = pick_product(filtered, "moisturizer|cream|lotion|night cream|hydrator|gel", "Moisturizer", is_sensitive)
     routine['Protect'] = ("Broad-spectrum SPF 50+ every morning", None)
 
     return routine
 
-# Main form (unchanged)
+# Main form
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
     skin_option = st.selectbox("Select one:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])
@@ -247,4 +252,3 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-

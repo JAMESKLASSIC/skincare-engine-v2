@@ -5,7 +5,7 @@ st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
 
-# Demo mode toggle (visible only to you)
+# Demo mode toggle
 demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
@@ -37,7 +37,7 @@ if df.empty:
     st.warning("No products loaded. Upload a CSV or use default.")
     st.stop()
 
-# Quick fix for any remaining mojibake in notes (after UTF-8 save)
+# Quick cleanup for mojibake (in case encoding is still off)
 df['notes'] = df['notes'].astype(str).replace({
     r'â|â': '—',
     r'â': "'",
@@ -47,34 +47,28 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
-# Safety check — now allows "Yes" and "Yes with caution"
+# Safety check — returns True/False only
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
-        return False, ""
+        return False
     if using_prescription and (row.get('contains_retinol', '') == 'Yes' or row.get('contains_acid', '') == 'Yes'):
-        return False, ""
-
-    caution_note = ""
+        return False
     if is_sensitive:
-        safe_val = row.get('safe_for_sensitive', '').strip()
-        if safe_val == 'No':
-            return False, ""
-        elif 'Yes with caution' in safe_val or 'caution' in safe_val.lower():
-            caution_note = " (use with caution — patch test recommended; may cause mild irritation in very sensitive skin)"
-        elif not safe_val.startswith('Yes'):
-            return False, ""
+        safe_val = row.get('safe_for_sensitive', '').strip().lower()
+        if 'no' in safe_val or 'not' in safe_val:
+            return False
+        # Allow 'yes' and 'yes with caution' for inclusion
+    return True
 
-    return True, caution_note
-
-# Pick product — append caution note when relevant
+# Pick product — adds caution note during display
 def pick_product(filtered_df, step_keywords, fallback_text, risk_flag=None, step_name=""):
     step_df = filtered_df[filtered_df['step'].str.contains(step_keywords, case=False, na=False)]
 
-    # Extra fallback for moisturize/treat
+    # Extra fallback for moisturize/treat steps
     if step_df.empty:
         if 'moisturize' in step_name.lower() or 'treat' in step_name.lower():
             step_df = filtered_df[
-                filtered_df['name'].str.contains('moisturizer|cream|lotion|night cream|serum|ampoule', case=False, na=False) |
+                filtered_df['name'].str.contains('moisturizer|cream|lotion|night cream|serum|ampoule|treatment', case=False, na=False) |
                 filtered_df['notes'].str.contains('moisturizer|night cream|overnight|daily moisturizer|serum|treat|brightening', case=False, na=False)
             ]
 
@@ -84,30 +78,20 @@ def pick_product(filtered_df, step_keywords, fallback_text, risk_flag=None, step
     if step_df.empty:
         return fallback_text, None
 
-    # Pick row
     row = step_df.sample(1).iloc[0]
 
-    # Get caution if sensitive
+    # Add caution note if sensitive user and product has caution wording
     caution_note = ""
     if risk_flag == "Sensitive":
-        _, caution_note = is_safe(row, is_sensitive=True)  # reuse the caution logic
+        safe_val = row.get('safe_for_sensitive', '').strip().lower()
+        if 'caution' in safe_val or 'with caution' in safe_val:
+            caution_note = " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
 
     details = (
         f"**{row['product_id']} — {row['name']}**  \n"
         f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
         f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
         f"**Notes:** {row.get('notes', 'No extra notes')}{caution_note}"
-    )
-    return details, row['product_id']
-
-    # Sensitive preference (using the relaxed is_safe)
-    row = step_df.sample(1).iloc[0]
-
-    details = (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}"
     )
     return details, row['product_id']
 
@@ -122,7 +106,7 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         else:
             filtered = df.copy()
 
-        # Safety filter
+        # Safety filter (now allows "Yes with caution")
         filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
         # Skin type filter
@@ -165,7 +149,7 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
 
         routine = {}
 
-        # Steps with broader matching
+        # Steps
         routine['Cleanse'], _ = pick_product(filtered, "cleanse", "Gentle cleanser", "Sensitive" if is_sensitive else None, "Cleanse")
         routine['Tone'], _ = pick_product(filtered, "tone|exfoliate", "Hydrating toner", "Sensitive" if is_sensitive else None, "Tone")
         routine['Treat'], _ = pick_product(filtered, "treat", "Targeted serum", "Sensitive" if is_sensitive else None, "Treat")
@@ -266,4 +250,3 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-

@@ -33,10 +33,19 @@ else:
             st.error(f"Upload error: {str(e)}")
 
 if df.empty:
-    st.warning("No products loaded. Upload or use default.")
+    st.warning("No products loaded. Upload a CSV or use default.")
     st.stop()
 
-# Safety check — allow Yes and Yes with caution
+# Mojibake cleanup
+df['notes'] = df['notes'].astype(str).replace({
+    r'â|â': '—',
+    r'â': "'",
+    r'â|â': '"',
+    r'â¢': '•',
+    r'â¢': '™',
+    r'â¦': '…'
+}, regex=True)
+
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
         return False
@@ -48,18 +57,15 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
             return False
     return True
 
-# Caution note helper
 def get_caution_note(row, is_sensitive):
     if not is_sensitive:
         return ""
     safe_val = row.get('safe_for_sensitive', '').strip().lower()
-    if 'caution' in safe_val or 'with caution' in safe_val:
+    if 'caution' in safe_val:
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Pick product from category (no step column filtering)
-def pick_from_category(filtered_df, category_keywords, fallback_text, is_sensitive):
-    # Match by name, notes, key_actives, primary/secondary target
+def pick_product(filtered_df, category_keywords, fallback_text, is_sensitive):
     candidates = filtered_df[
         filtered_df['name'].str.contains(category_keywords, case=False, na=False) |
         filtered_df['notes'].str.contains(category_keywords, case=False, na=False) |
@@ -69,7 +75,6 @@ def pick_from_category(filtered_df, category_keywords, fallback_text, is_sensiti
     ]
 
     if candidates.empty:
-        # Ultimate fallback: any product
         candidates = filtered_df
 
     if candidates.empty:
@@ -88,20 +93,16 @@ def pick_from_category(filtered_df, category_keywords, fallback_text, is_sensiti
     )
     return details, row['product_id']
 
-# Routine builder — no step column filtering
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
-    # Area filter
     if area == "Face":
         filtered = filtered[~filtered['name'].str.lower().str.contains('body', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
 
-    # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Skin type
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -113,9 +114,8 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         st.warning("No safe products match your profile.")
         return {}
 
-    # Concerns filter
     if concerns:
-        mask = pd.Series([False] * len(filtered))
+        keep_rows = pd.Series(False, index=filtered.index)
         for c in concerns:
             if c == "acne":
                 k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
@@ -126,23 +126,24 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
             else:
                 k = ""
             if k:
-                mask |= filtered['primary_target'].str.contains(k, case=False, na=False)
-                mask |= filtered['secondary_target'].str.contains(k, case=False, na=False)
-                mask |= filtered['key_actives'].str.contains(k, case=False, na=False)
-        filtered = filtered[mask]
+                keep_rows |= (
+                    filtered['primary_target'].str.contains(k, case=False, na=False) |
+                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
+                    filtered['key_actives'].str.contains(k, case=False, na=False)
+                )
+        filtered = filtered[keep_rows]
 
     routine = {}
 
-    # Assign categories by keywords (no step filter)
-    routine['Cleanse'] = pick_product(filtered, "cleanser|wash|foam|cleanse", "Gentle cleanser", is_sensitive, "Cleanse")
-    routine['Tone'] = pick_product(filtered, "toner|essence|boost|brightening toner", "Hydrating toner", is_sensitive, "Tone")
-    routine['Treat'] = pick_product(filtered, "serum|ampoule|treatment|fade spots|brightening|niacinamide|txa|arbutin|kojic|vitamin c", "Targeted serum", is_sensitive, "Treat")
-    routine['Moisturize'] = pick_product(filtered, "moisturizer|cream|lotion|night cream|hydrator|gel", "Moisturizer", is_sensitive, "Moisturize")
+    routine['Cleanse'] = pick_product(filtered, "cleanser|wash|foam", "Gentle cleanser", is_sensitive)
+    routine['Tone'] = pick_product(filtered, "toner|essence", "Hydrating toner", is_sensitive)
+    routine['Treat'] = pick_product(filtered, "serum|ampoule|treatment|fade spots|brightening|niacinamide|txa|arbutin|kojic|vitamin c", "Targeted serum", is_sensitive)
+    routine['Moisturize'] = pick_product(filtered, "moisturizer|cream|lotion|night cream|hydrator|gel", "Moisturizer", is_sensitive)
     routine['Protect'] = ("Broad-spectrum SPF 50+ every morning", None)
 
     return routine
 
-# Main form
+# Main form (unchanged)
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
     skin_option = st.selectbox("Select one:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])

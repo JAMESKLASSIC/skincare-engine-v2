@@ -114,25 +114,41 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         st.warning("No safe products match your profile.")
         return {}
 
+   
     if concerns:
-        keep_rows = pd.Series(False, index=filtered.index)
-        for c in concerns:
-            if c == "acne":
-                k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
-            elif c == "dark spots / uneven tone":
-                k = "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice"
-            elif c == "dryness":
-                k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
-            else:
-                k = ""
-            if k:
-                keep_rows |= (
-                    filtered['primary_target'].str.contains(k, case=False, na=False) |
-                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
-                    filtered['key_actives'].str.contains(k, case=False, na=False)
-                )
-        filtered = filtered[keep_rows]
+    filtered = filtered.reset_index(drop=True)
+    keep_rows = pd.Series(False, index=filtered.index)  # Safe boolean with correct index
 
+    for concern in concerns:
+        concern = concern.lower().strip()
+        if "acne" in concern or "breakout" in concern:
+            k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
+        elif "dark spot" in concern or "uneven tone" in concern or "melasma" in concern or "pigment" in concern:
+            k = "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice"
+        elif "dryness" in concern or "dehydration" in concern:
+            k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
+        elif "texture" in concern or "rough" in concern:
+            k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
+        elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
+            k = "anti-aging|retinol|firming|wrinkle"
+        elif "sensitivity" in concern or "irritation" in concern:
+            k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
+        elif "dull" in concern:
+            k = "dull|glow|radiance|vitamin c"
+        elif "barrier" in concern or "damaged" in concern:
+            k = "barrier|ceramide|repair|restore"
+        else:
+            k = ""
+
+        if k:
+            keep_rows |= (
+                filtered['primary_target'].str.contains(k, case=False, na=False) |
+                filtered['secondary_target'].str.contains(k, case=False, na=False) |
+                filtered['key_actives'].str.contains(k, case=False, na=False)
+            )
+
+    filtered = filtered[keep_rows]
+    
     routine = {}
 
     routine['Cleanse'] = pick_product(filtered, "cleanser|wash|foam", "Gentle cleanser", is_sensitive)
@@ -231,3 +247,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

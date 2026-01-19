@@ -47,37 +47,58 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
-# Safety check — now accepts "Yes" and "Yes with caution"
+# Safety check — now allows "Yes" and "Yes with caution"
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
-        return False
+        return False, ""
     if using_prescription and (row.get('contains_retinol', '') == 'Yes' or row.get('contains_acid', '') == 'Yes'):
-        return False
-    if is_sensitive:
-        safe_val = row.get('safe_for_sensitive', '')
-        if not (safe_val.startswith('Yes') or 'Yes with caution' in safe_val):
-            return False
-    return True
+        return False, ""
 
-# Pick product — prefers matches in step/name/notes, strict fallback to real data only
+    caution_note = ""
+    if is_sensitive:
+        safe_val = row.get('safe_for_sensitive', '').strip()
+        if safe_val == 'No':
+            return False, ""
+        elif 'Yes with caution' in safe_val or 'caution' in safe_val.lower():
+            caution_note = " (use with caution — patch test recommended; may cause mild irritation in very sensitive skin)"
+        elif not safe_val.startswith('Yes'):
+            return False, ""
+
+    return True, caution_note
+
+# Pick product — append caution note when relevant
 def pick_product(filtered_df, step_keywords, fallback_text, risk_flag=None, step_name=""):
-    # Try step column first
     step_df = filtered_df[filtered_df['step'].str.contains(step_keywords, case=False, na=False)]
 
-    # If no match, look in name/notes for relevant terms
+    # Extra fallback for moisturize/treat
     if step_df.empty:
         if 'moisturize' in step_name.lower() or 'treat' in step_name.lower():
             step_df = filtered_df[
                 filtered_df['name'].str.contains('moisturizer|cream|lotion|night cream|serum|ampoule', case=False, na=False) |
-                filtered_df['notes'].str.contains('moisturizer|night cream|overnight|daily moisturizer|serum|ampoule|treat|brightening', case=False, na=False)
+                filtered_df['notes'].str.contains('moisturizer|night cream|overnight|daily moisturizer|serum|treat|brightening', case=False, na=False)
             ]
 
-    # Ultimate fallback: any product in filtered_df
     if step_df.empty:
         step_df = filtered_df
 
     if step_df.empty:
         return fallback_text, None
+
+    # Pick row
+    row = step_df.sample(1).iloc[0]
+
+    # Get caution if sensitive
+    caution_note = ""
+    if risk_flag == "Sensitive":
+        _, caution_note = is_safe(row, is_sensitive=True)  # reuse the caution logic
+
+    details = (
+        f"**{row['product_id']} — {row['name']}**  \n"
+        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
+        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
+        f"**Notes:** {row.get('notes', 'No extra notes')}{caution_note}"
+    )
+    return details, row['product_id']
 
     # Sensitive preference (using the relaxed is_safe)
     row = step_df.sample(1).iloc[0]
@@ -245,3 +266,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

@@ -88,36 +88,40 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns
-    if concerns:
-        keep_rows = pd.Series(False, index=filtered.index)
-        for concern in concerns:
-            concern = concern.lower().strip()
-            if "acne" in concern or "breakout" in concern:
-                k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
-            elif "dark spot" in concern or "uneven tone" in concern or "melasma" in concern:
-                k = "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice"
-            elif "dryness" in concern or "dehydration" in concern:
-                k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
-            elif "texture" in concern or "rough" in concern:
-                k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
-            elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
-                k = "anti-aging|retinol|firming|wrinkle"
-            elif "sensitivity" in concern or "irritation" in concern:
-                k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
-            elif "dull" in concern:
-                k = "dull|glow|radiance|vitamin c"
-            elif "barrier" in concern or "damaged" in concern:
-                k = "barrier|ceramide|repair|restore"
-            else:
-                k = ""
-            if k:
-                keep_rows |= (
-                    filtered['primary_target'].str.contains(k, case=False, na=False) |
-                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
-                    filtered['key_actives'].str.contains(k, case=False, na=False)
-                )
-        filtered = filtered[keep_rows]
+if concerns:
+    keep_rows = pd.Series(False, index=filtered.index)
+    for concern in concerns:
+        concern = concern.lower().strip()
+        if "acne" in concern or "breakout" in concern:
+            k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
+        elif any(word in concern for word in ["dark spot", "uneven tone", "melasma", "pigment", "hyperpigmentation", "discoloration"]):
+            k = (
+                "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|"
+                "arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|thiamidol|glutathione|"
+                "discoloration|spot fading|tone correcting"
+            )
+        elif "dryness" in concern or "dehydration" in concern:
+            k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
+        elif "texture" in concern or "rough" in concern:
+            k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
+        elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
+            k = "anti-aging|retinol|firming|wrinkle"
+        elif "sensitivity" in concern or "irritation" in concern:
+            k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
+        elif "dull" in concern:
+            k = "dull|glow|radiance|vitamin c"
+        elif "barrier" in concern or "damaged" in concern:
+            k = "barrier|ceramide|repair|restore"
+        else:
+            k = ""
+        if k:
+            keep_rows |= (
+                filtered['primary_target'].str.contains(k, case=False, na=False) |
+                filtered['secondary_target'].str.contains(k, case=False, na=False) |
+                filtered['key_actives'].str.contains(k, case=False, na=False) |
+                filtered['notes'].str.contains(k, case=False, na=False)  # extra boost for notes
+            )
+    filtered = filtered[keep_rows]
 
     if filtered.empty:
         st.warning("No safe products match your profile.")
@@ -334,3 +338,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

@@ -5,7 +5,6 @@ st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
 
-# Demo mode toggle
 demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
@@ -33,7 +32,6 @@ else:
         except Exception as e:
             st.error(f"Upload error: {str(e)}")
 
-# Early exit if no data — use st.stop() instead of return
 if df.empty:
     st.warning("No products loaded. Upload a CSV or use default.")
     st.stop()
@@ -90,7 +88,7 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns — robust matching
+    # Concerns
     if concerns:
         keep_rows = pd.Series(False, index=filtered.index)
         for concern in concerns:
@@ -126,23 +124,18 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
                 )
         filtered = filtered[keep_rows]
 
-    # Debug (uncomment if needed to see row count after filtering)
-    # st.write(f"Products after all filters: {len(filtered)}")
-
     if filtered.empty:
-        st.warning("No safe products match your profile. Try without sensitive filter or consult a professional.")
+        st.warning("No safe products match your profile.")
         return pd.DataFrame()
 
     return filtered
 
-# Category-specific pickers (stricter for Cleanse)
+# Strict category pickers
 def pick_cleanser(filtered_df, is_sensitive):
     candidates = filtered_df[
         filtered_df['name'].str.contains('cleanser|wash|foam|soap|face wash|body wash', case=False, na=False) |
         filtered_df['notes'].str.contains('cleanser|wash|foam|lather|cleanse', case=False, na=False)
     ]
-    if candidates.empty:
-        candidates = filtered_df
     if candidates.empty:
         return "Gentle cleanser", None
     row = candidates.sample(1).iloc[0]
@@ -157,11 +150,9 @@ def pick_cleanser(filtered_df, is_sensitive):
 
 def pick_toner(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains('toner|essence|lotion|boost|essence lotion', case=False, na=False) |
+        filtered_df['name'].str.contains('toner|essence|boost|essence lotion', case=False, na=False) |
         filtered_df['notes'].str.contains('toner|essence|lotion|pat in|7-skin', case=False, na=False)
     ]
-    if candidates.empty:
-        candidates = filtered_df
     if candidates.empty:
         return "Hydrating toner", None
     row = candidates.sample(1).iloc[0]
@@ -192,10 +183,9 @@ def pick_treat(filtered_df, concerns, is_sensitive):
     ]
     if keywords:
         candidates = candidates[
-            candidates['key_actives'].str.contains(keywords, case=False, na=False)
+            candidates['key_actives'].str.contains(keywords, case=False, na=False) |
+            candidates['notes'].str.contains(keywords, case=False, na=False)
         ]
-    if candidates.empty:
-        candidates = filtered_df
     if candidates.empty:
         return "Targeted serum", None
     row = candidates.sample(1).iloc[0]
@@ -213,8 +203,6 @@ def pick_moisturizer(filtered_df, is_sensitive):
         filtered_df['name'].str.contains('moisturizer|cream|lotion|night cream|gel cream|hydrator', case=False, na=False) |
         filtered_df['notes'].str.contains('moisturizer|cream|lotion|night cream|hydrate|moisture|daily moisturizer', case=False, na=False)
     ]
-    if candidates.empty:
-        candidates = filtered_df
     if candidates.empty:
         return "Moisturizer", None
     row = candidates.sample(1).iloc[0]

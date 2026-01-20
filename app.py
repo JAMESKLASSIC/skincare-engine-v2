@@ -46,7 +46,7 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
-# Safety check — allow Yes and Yes with caution
+# Safety check
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
         return False
@@ -130,11 +130,11 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
 
     return filtered
 
-# Strict category pickers
+# STRICT category pickers — no fallback to any product
 def pick_cleanser(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains('cleanser|wash|foam|soap|face wash|body wash', case=False, na=False) |
-        filtered_df['notes'].str.contains('cleanser|wash|foam|lather|cleanse', case=False, na=False)
+        filtered_df['name'].str.contains(r'cleanser|wash|foam|soap', case=False, regex=True, na=False) |
+        filtered_df['notes'].str.contains(r'cleanser|wash|foam|lather|cleanse', case=False, regex=True, na=False)
     ]
     if candidates.empty:
         return "Gentle cleanser", None
@@ -150,8 +150,8 @@ def pick_cleanser(filtered_df, is_sensitive):
 
 def pick_toner(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains('toner|essence|boost|essence lotion', case=False, na=False) |
-        filtered_df['notes'].str.contains('toner|essence|lotion|pat in|7-skin', case=False, na=False)
+        filtered_df['name'].str.contains(r'toner|essence|boost|essence lotion', case=False, regex=True, na=False) |
+        filtered_df['notes'].str.contains(r'toner|essence|lotion|pat in|7-skin', case=False, regex=True, na=False)
     ]
     if candidates.empty:
         return "Hydrating toner", None
@@ -178,8 +178,8 @@ def pick_treat(filtered_df, concerns, is_sensitive):
     keywords = keywords.strip('|')
 
     candidates = filtered_df[
-        filtered_df['name'].str.contains('serum|ampoule|treatment|essence|booster', case=False, na=False) |
-        filtered_df['notes'].str.contains('serum|ampoule|treatment|targeted|spot|overnight', case=False, na=False)
+        filtered_df['name'].str.contains(r'serum|ampoule|treatment|essence|booster', case=False, regex=True, na=False) |
+        filtered_df['notes'].str.contains(r'serum|ampoule|treatment|targeted|spot|overnight', case=False, regex=True, na=False)
     ]
     if keywords:
         candidates = candidates[
@@ -200,8 +200,8 @@ def pick_treat(filtered_df, concerns, is_sensitive):
 
 def pick_moisturizer(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains('moisturizer|cream|lotion|night cream|gel cream|hydrator', case=False, na=False) |
-        filtered_df['notes'].str.contains('moisturizer|cream|lotion|night cream|hydrate|moisture|daily moisturizer', case=False, na=False)
+        filtered_df['name'].str.contains(r'moisturizer|cream|lotion|night cream|gel cream|hydrator', case=False, regex=True, na=False) |
+        filtered_df['notes'].str.contains(r'moisturizer|cream|lotion|night cream|hydrate|moisture|daily moisturizer', case=False, regex=True, na=False)
     ]
     if candidates.empty:
         return "Moisturizer", None
@@ -217,8 +217,8 @@ def pick_moisturizer(filtered_df, is_sensitive):
 
 def pick_protect(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains('spf|sunscreen|uv|protect', case=False, na=False) |
-        filtered_df['notes'].str.contains('spf|sunscreen|uv|protect|reapply', case=False, na=False)
+        filtered_df['name'].str.contains(r'spf|sunscreen|uv|protect', case=False, regex=True, na=False) |
+        filtered_df['notes'].str.contains(r'spf|sunscreen|uv|protect|reapply', case=False, regex=True, na=False)
     ]
     if candidates.empty:
         return "Broad-spectrum SPF 50+ every morning", None

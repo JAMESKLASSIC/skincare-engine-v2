@@ -5,11 +5,12 @@ st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
 
+# Demo mode toggle
 demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
-# Load inventory (unchanged)
+# Load inventory
 st.subheader("Load Product Inventory")
 use_default = st.radio("Which inventory?", ("Default (skincare_products_fixed.csv)", "Upload seller's CSV"))
 
@@ -32,8 +33,9 @@ else:
         except Exception as e:
             st.error(f"Upload error: {str(e)}")
 
+# Early exit if no data — use st.stop() instead of return
 if df.empty:
-    st.warning("No products loaded. Upload or use default.")
+    st.warning("No products loaded. Upload a CSV or use default.")
     st.stop()
 
 # Mojibake cleanup
@@ -46,7 +48,7 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
-# Safety check
+# Safety check — allow Yes and Yes with caution
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
         return False
@@ -67,7 +69,7 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Common filtered df (safety + type + area + concern)
+# Common filtered df
 def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
@@ -88,48 +90,52 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-if concerns:
-    keep_rows = pd.Series(False, index=filtered.index)
-    for concern in concerns:
-        concern = concern.lower().strip()
-        if "acne" in concern or "breakout" in concern:
-            k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
-        elif any(word in concern for word in ["dark spot", "uneven tone", "melasma", "pigment", "hyperpigmentation", "discoloration"]):
-            k = (
-                "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|"
-                "arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|thiamidol|glutathione|"
-                "discoloration|spot fading|tone correcting"
-            )
-        elif "dryness" in concern or "dehydration" in concern:
-            k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
-        elif "texture" in concern or "rough" in concern:
-            k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
-        elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
-            k = "anti-aging|retinol|firming|wrinkle"
-        elif "sensitivity" in concern or "irritation" in concern:
-            k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
-        elif "dull" in concern:
-            k = "dull|glow|radiance|vitamin c"
-        elif "barrier" in concern or "damaged" in concern:
-            k = "barrier|ceramide|repair|restore"
-        else:
-            k = ""
-        if k:
-            keep_rows |= (
-                filtered['primary_target'].str.contains(k, case=False, na=False) |
-                filtered['secondary_target'].str.contains(k, case=False, na=False) |
-                filtered['key_actives'].str.contains(k, case=False, na=False) |
-                filtered['notes'].str.contains(k, case=False, na=False)  # extra boost for notes
-            )
-    filtered = filtered[keep_rows]
+    # Concerns — robust matching
+    if concerns:
+        keep_rows = pd.Series(False, index=filtered.index)
+        for concern in concerns:
+            concern = concern.lower().strip()
+            if "acne" in concern or "breakout" in concern:
+                k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
+            elif any(word in concern for word in ["dark spot", "uneven tone", "melasma", "pigment", "hyperpigmentation", "discoloration"]):
+                k = (
+                    "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|"
+                    "arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|thiamidol|glutathione|"
+                    "discoloration|spot fading|tone correcting"
+                )
+            elif "dryness" in concern or "dehydration" in concern:
+                k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
+            elif "texture" in concern or "rough" in concern:
+                k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
+            elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
+                k = "anti-aging|retinol|firming|wrinkle"
+            elif "sensitivity" in concern or "irritation" in concern:
+                k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
+            elif "dull" in concern:
+                k = "dull|glow|radiance|vitamin c"
+            elif "barrier" in concern or "damaged" in concern:
+                k = "barrier|ceramide|repair|restore"
+            else:
+                k = ""
+            if k:
+                keep_rows |= (
+                    filtered['primary_target'].str.contains(k, case=False, na=False) |
+                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
+                    filtered['key_actives'].str.contains(k, case=False, na=False) |
+                    filtered['notes'].str.contains(k, case=False, na=False)
+                )
+        filtered = filtered[keep_rows]
+
+    # Debug (uncomment if needed to see row count after filtering)
+    # st.write(f"Products after all filters: {len(filtered)}")
 
     if filtered.empty:
-        st.warning("No safe products match your profile.")
+        st.warning("No safe products match your profile. Try without sensitive filter or consult a professional.")
         return pd.DataFrame()
 
     return filtered
 
-# Category-specific pickers
+# Category-specific pickers (stricter for Cleanse)
 def pick_cleanser(filtered_df, is_sensitive):
     candidates = filtered_df[
         filtered_df['name'].str.contains('cleanser|wash|foam|soap|face wash|body wash', case=False, na=False) |
@@ -171,7 +177,7 @@ def pick_toner(filtered_df, is_sensitive):
 def pick_treat(filtered_df, concerns, is_sensitive):
     keywords = ""
     if any("acne" in c or "breakout" in c for c in concerns):
-        keywords = "salicylic|benzoyl|niacinamide|tea tree"
+        keywords += "salicylic|benzoyl|niacinamide|tea tree"
     if any("dark spot" in c or "uneven tone" in c or "melasma" in c for c in concerns):
         keywords += "|arbutin|kojic|vitamin c|tranexamic|niacinamide|brightening|fade spots"
     if any("dryness" in c or "dehydration" in c for c in concerns):
@@ -182,9 +188,12 @@ def pick_treat(filtered_df, concerns, is_sensitive):
 
     candidates = filtered_df[
         filtered_df['name'].str.contains('serum|ampoule|treatment|essence|booster', case=False, na=False) |
-        filtered_df['notes'].str.contains('serum|ampoule|treatment|targeted|spot|overnight', case=False, na=False) |
-        (filtered_df['key_actives'].str.contains(keywords, case=False, na=False) if keywords else False)
+        filtered_df['notes'].str.contains('serum|ampoule|treatment|targeted|spot|overnight', case=False, na=False)
     ]
+    if keywords:
+        candidates = candidates[
+            candidates['key_actives'].str.contains(keywords, case=False, na=False)
+        ]
     if candidates.empty:
         candidates = filtered_df
     if candidates.empty:
@@ -250,7 +259,7 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
 
     return routine
 
-# Main form (unchanged)
+# Main form
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
     skin_option = st.selectbox("Select one:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])
@@ -338,4 +347,3 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-

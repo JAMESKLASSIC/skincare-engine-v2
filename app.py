@@ -130,10 +130,10 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
 
     return filtered
 
-# STRICT category pickers — no fallback to any product
+# STRICT category pickers — NO fallback to any product
 def pick_cleanser(filtered_df, is_sensitive):
     candidates = filtered_df[
-        filtered_df['name'].str.contains(r'cleanser|wash|foam|soap', case=False, regex=True, na=False) |
+        filtered_df['name'].str.contains(r'cleanser|wash|foam|soap|face wash|body wash', case=False, regex=True, na=False) |
         filtered_df['notes'].str.contains(r'cleanser|wash|foam|lather|cleanse', case=False, regex=True, na=False)
     ]
     if candidates.empty:

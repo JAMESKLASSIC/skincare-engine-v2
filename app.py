@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from typing import List, Tuple, Dict
 
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
@@ -10,7 +9,9 @@ demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
+# ────────────────────────────────────────────────
 # Load inventory
+# ────────────────────────────────────────────────
 st.subheader("Load Product Inventory")
 use_default = st.radio("Which inventory?", ("Default (skincare_products_fixed.csv)", "Upload seller's CSV"))
 
@@ -47,12 +48,15 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¦': '…'
 }, regex=True)
 
-# Check category column
+# Ensure category column exists
 if 'category' not in df.columns:
-    st.warning("No 'category' column found. Falling back to keyword matching.")
+    st.warning("No 'category' column found in CSV. Using fallback keyword matching.")
     df['category'] = ""
 
-# Safety check
+# ────────────────────────────────────────────────
+# Helper functions
+# ────────────────────────────────────────────────
+
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
     if is_pregnant and (row.get('contains_retinol', '') == 'Yes' or row.get('prescription_only', '') == 'Yes'):
         return False
@@ -64,7 +68,6 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
             return False
     return True
 
-# Caution note
 def get_caution_note(row, is_sensitive):
     if not is_sensitive:
         return ""
@@ -76,7 +79,7 @@ def get_caution_note(row, is_sensitive):
 # Concern keyword mapping
 CONCERN_KEYWORDS = {
     "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
-    "dark spots / uneven tone": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
+    "dark spots / uneven tone / melasma": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
     "dryness / dehydration": "hydration|hyaluronic|moisturizing|dryness|ceramide|glycerin|plumping|humectant",
     "texture / rough skin": "texture|rough|exfoliation|smoothing|glycolic|lactic",
     "aging / fine lines": "anti-aging|retinol|firming|wrinkle",
@@ -85,9 +88,9 @@ CONCERN_KEYWORDS = {
     "damaged barrier": "barrier|ceramide|repair|restore"
 }
 
-# Category to step mapping (using your exact wordings)
-CATEGORY_TO_STEP = {
-    "Cleanse": [
+# Category to step mapping (your exact wordings)
+CATEGORY_MAPPING = {
+    'Cleanse': [
         "Acne Treatment / Cleanser",
         "Cleansing / Balancing / Brightening",
         "Cleansing / Hydrating / Barrier Repair",
@@ -106,14 +109,14 @@ CATEGORY_TO_STEP = {
         "Cleansing / Hydrating",
         "Brightening / Cleansing / Bar Soap"
     ],
-    "Tone": [
+    'Tone': [
         "Brightening / Tone-Up",
         "Hydrating / Barrier Repair",
         "Hydrating / Plumping / Essence",
         "Hydrating / Plumping / Serum",
         "Brightening / Spot Fading / Essence"
     ],
-    "Treat": [
+    'Treat': [
         "Serum / Barrier Repair / Hydrator",
         "Brightening / Antioxidant / Serum",
         "Brightening / Blemish Control / Serum",
@@ -122,7 +125,7 @@ CATEGORY_TO_STEP = {
         "Anti-Aging / Brightening / Serum",
         "Brightening / Tone Correcting / Serum"
     ],
-    "Moisturize": [
+    'Moisturize': [
         "Exfoliating / Moisturizer",
         "Moisturizer / Body Oil",
         "Moisturizer / Hydrator",
@@ -152,16 +155,15 @@ CATEGORY_TO_STEP = {
         "Moisturizer / Hydrator / Body Oil Gel",
         "Brightening / Moisturizing / Multi-Benefit"
     ],
-    "Protect": [
+    'Protect': [
         "Sunscreen / UV Protection"
     ]
 }
 
-# Get filtered df
 def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
-    # Area
+    # Area filter
     if area == "Face":
         filtered = filtered[~filtered['name'].str.lower().str.contains('body|intimate|feminine|femfresh', na=False)]
     elif area == "Body":
@@ -199,7 +201,6 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
 
     return filtered
 
-# Pick product using category as primary filter + concern keywords as boost
 def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=None):
     target_categories = CATEGORY_MAPPING.get(step_name, [])
     candidates = filtered_df[filtered_df['category'].isin(target_categories)]
@@ -207,7 +208,7 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
     if candidates.empty:
         return fallback_text, None
 
-    # Secondary boost: score based on concern match
+    # Secondary boost: score products by concern relevance
     if concerns:
         candidates = candidates.copy()
         candidates['concern_score'] = 0
@@ -222,7 +223,8 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
                 )
         candidates = candidates.sort_values('concern_score', ascending=False)
 
-    row = candidates.iloc[0]  # take top (or random if no score)
+    # Take top match
+    row = candidates.iloc[0]
 
     caution = get_caution_note(row, is_sensitive)
     details = (
@@ -234,7 +236,6 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
     )
     return details, row['product_id']
 
-# Main routine builder
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area)
     if filtered.empty:
@@ -249,7 +250,9 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
 
     return routine
 
+# ────────────────────────────────────────────────
 # Main form
+# ────────────────────────────────────────────────
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
     skin_option = st.selectbox("Select one:", ["Oily", "Dry", "Combination", "Normal", "Not sure"])

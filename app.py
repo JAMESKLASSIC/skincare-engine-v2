@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from typing import List, Tuple, Dict
 
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
@@ -27,7 +28,7 @@ else:
         try:
             df = pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='warn')
             st.success(f"Loaded {len(df)} products")
-            with st.expander("Preview"):
+            with st.expander("Preview first 5 rows"):
                 st.dataframe(df.head())
         except Exception as e:
             st.error(f"Upload error: {str(e)}")
@@ -45,6 +46,11 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â¢': '™',
     r'â¦': '…'
 }, regex=True)
+
+# Check category column
+if 'category' not in df.columns:
+    st.warning("No 'category' column found. Falling back to keyword matching.")
+    df['category'] = ""
 
 # Safety check
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
@@ -67,13 +73,97 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Common filtered df
+# Concern keyword mapping
+CONCERN_KEYWORDS = {
+    "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
+    "dark spots / uneven tone": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
+    "dryness / dehydration": "hydration|hyaluronic|moisturizing|dryness|ceramide|glycerin|plumping|humectant",
+    "texture / rough skin": "texture|rough|exfoliation|smoothing|glycolic|lactic",
+    "aging / fine lines": "anti-aging|retinol|firming|wrinkle",
+    "sensitivity / irritation": "sensitive|soothing|gentle|calming|centella|ceramide|barrier",
+    "dull skin": "dull|glow|radiance|vitamin c",
+    "damaged barrier": "barrier|ceramide|repair|restore"
+}
+
+# Category to step mapping (using your exact wordings)
+CATEGORY_TO_STEP = {
+    "Cleanse": [
+        "Acne Treatment / Cleanser",
+        "Cleansing / Balancing / Brightening",
+        "Cleansing / Hydrating / Barrier Repair",
+        "Cleansing / Refreshing",
+        "Cleansing / Makeup Removal / Refreshing",
+        "Cleansing / Blemish Control / Barrier Repair",
+        "Cleansing / Oil Control / Barrier Repair",
+        "Cleansing / Exfoliating / Blemish Control",
+        "Feminine Hygiene / Cleansing",
+        "Exfoliating / Brightening / Cleansing",
+        "Hydrating / Nourishing / Cleansing",
+        "Refreshing / Hydrating / Cleansing",
+        "Hydrating / Pampering / Cleansing",
+        "Exfoliating / Refreshing / Cleansing",
+        "Exfoliating / Renewing / Cleansing",
+        "Cleansing / Hydrating",
+        "Brightening / Cleansing / Bar Soap"
+    ],
+    "Tone": [
+        "Brightening / Tone-Up",
+        "Hydrating / Barrier Repair",
+        "Hydrating / Plumping / Essence",
+        "Hydrating / Plumping / Serum",
+        "Brightening / Spot Fading / Essence"
+    ],
+    "Treat": [
+        "Serum / Barrier Repair / Hydrator",
+        "Brightening / Antioxidant / Serum",
+        "Brightening / Blemish Control / Serum",
+        "Brightening / Soothing / Serum",
+        "Exfoliating / Brightening / Serum",
+        "Anti-Aging / Brightening / Serum",
+        "Brightening / Tone Correcting / Serum"
+    ],
+    "Moisturize": [
+        "Exfoliating / Moisturizer",
+        "Moisturizer / Body Oil",
+        "Moisturizer / Hydrator",
+        "Moisturizer / Body Lotion",
+        "Moisturizer / Hydrator / Repair",
+        "Moisturizer / Balancing / Soothing",
+        "Brightening / Tone Correcting / Moisturizer",
+        "Brightening / Spot Treatment / Moisturizer",
+        "Brightening / Moisturizer / Hydrator",
+        "Brightening / Anti-Acne / Moisturizer",
+        "Brightening / Moisturizing / Tone Correcting",
+        "Moisturizer / Hydrator / Plumping",
+        "Moisturizer / Barrier Repair / Hydrator",
+        "Moisturizer / Blemish Control / Barrier Repair",
+        "Moisturizer / Brightening / Hydrator",
+        "Anti-Aging / Firming / Moisturizer",
+        "Moisturizer / Barrier Repair / Oil Control",
+        "Hydrating / Plumping / Moisturizer",
+        "Brightening / Moisturizing / Hydrator",
+        "Anti-Aging / Hydrating / Renewing",
+        "Anti-Aging / Moisturizer / Smoothing",
+        "Moisturizer / Hydrator",
+        "Brightening / Moisturizing / Body Oil",
+        "Moisturizer / Body Oil / Brightening",
+        "Moisturizer / Body Oil / Glow-Boosting",
+        "Brightening / Moisturizing / Body Oil Gel",
+        "Moisturizer / Hydrator / Body Oil Gel",
+        "Brightening / Moisturizing / Multi-Benefit"
+    ],
+    "Protect": [
+        "Sunscreen / UV Protection"
+    ]
+}
+
+# Get filtered df
 def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
     # Area
     if area == "Face":
-        filtered = filtered[~filtered['name'].str.lower().str.contains('body', na=False)]
+        filtered = filtered[~filtered['name'].str.lower().str.contains('body|intimate|feminine|femfresh', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
 
@@ -88,33 +178,12 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns
+    # Concerns (secondary boost)
     if concerns:
         keep_rows = pd.Series(False, index=filtered.index)
         for concern in concerns:
             concern = concern.lower().strip()
-            if "acne" in concern or "breakout" in concern:
-                k = "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control"
-            elif any(word in concern for word in ["dark spot", "uneven tone", "melasma", "pigment", "hyperpigmentation", "discoloration"]):
-                k = (
-                    "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|"
-                    "arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|thiamidol|glutathione|"
-                    "discoloration|spot fading|tone correcting"
-                )
-            elif "dryness" in concern or "dehydration" in concern:
-                k = "hydration|hyaluronic|moisturizing|dryness|ceramide"
-            elif "texture" in concern or "rough" in concern:
-                k = "texture|rough|exfoliation|smoothing|glycolic|lactic"
-            elif "aging" in concern or "fine line" in concern or "wrinkle" in concern:
-                k = "anti-aging|retinol|firming|wrinkle"
-            elif "sensitivity" in concern or "irritation" in concern:
-                k = "sensitive|soothing|gentle|calming|centella|ceramide|barrier"
-            elif "dull" in concern:
-                k = "dull|glow|radiance|vitamin c"
-            elif "barrier" in concern or "damaged" in concern:
-                k = "barrier|ceramide|repair|restore"
-            else:
-                k = ""
+            k = CONCERN_KEYWORDS.get(concern, "")
             if k:
                 keep_rows |= (
                     filtered['primary_target'].str.contains(k, case=False, na=False) |
@@ -130,107 +199,40 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
 
     return filtered
 
-# STRICT category pickers — NO fallback to any product
-def pick_cleanser(filtered_df, is_sensitive):
-    candidates = filtered_df[
-        filtered_df['name'].str.contains(r'cleanser|wash|foam|soap|face wash|body wash', case=False, regex=True, na=False) |
-        filtered_df['notes'].str.contains(r'cleanser|wash|foam|lather|cleanse', case=False, regex=True, na=False)
-    ]
+# Pick product using category as primary filter + concern keywords as boost
+def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=None):
+    target_categories = CATEGORY_MAPPING.get(step_name, [])
+    candidates = filtered_df[filtered_df['category'].isin(target_categories)]
+
     if candidates.empty:
-        return "Gentle cleanser", None
-    row = candidates.sample(1).iloc[0]
+        return fallback_text, None
+
+    # Secondary boost: score based on concern match
+    if concerns:
+        candidates = candidates.copy()
+        candidates['concern_score'] = 0
+        for concern in concerns:
+            k = CONCERN_KEYWORDS.get(concern, "")
+            if k:
+                candidates['concern_score'] += (
+                    candidates['primary_target'].str.contains(k, case=False, na=False).astype(int) +
+                    candidates['secondary_target'].str.contains(k, case=False, na=False).astype(int) +
+                    candidates['key_actives'].str.contains(k, case=False, na=False).astype(int) +
+                    candidates['notes'].str.contains(k, case=False, na=False).astype(int)
+                )
+        candidates = candidates.sort_values('concern_score', ascending=False)
+
+    row = candidates.iloc[0]  # take top (or random if no score)
+
     caution = get_caution_note(row, is_sensitive)
-    return (
+    details = (
         f"**{row['product_id']} — {row['name']}**  \n"
         f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
         f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
         f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
         f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
-    ), row['product_id']
-
-def pick_toner(filtered_df, is_sensitive):
-    candidates = filtered_df[
-        filtered_df['name'].str.contains(r'toner|essence|boost|essence lotion', case=False, regex=True, na=False) |
-        filtered_df['notes'].str.contains(r'toner|essence|lotion|pat in|7-skin', case=False, regex=True, na=False)
-    ]
-    if candidates.empty:
-        return "Hydrating toner", None
-    row = candidates.sample(1).iloc[0]
-    caution = get_caution_note(row, is_sensitive)
-    return (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
-    ), row['product_id']
-
-def pick_treat(filtered_df, concerns, is_sensitive):
-    keywords = ""
-    if any("acne" in c or "breakout" in c for c in concerns):
-        keywords += "salicylic|benzoyl|niacinamide|tea tree"
-    if any("dark spot" in c or "uneven tone" in c or "melasma" in c for c in concerns):
-        keywords += "|arbutin|kojic|vitamin c|tranexamic|niacinamide|brightening|fade spots"
-    if any("dryness" in c or "dehydration" in c for c in concerns):
-        keywords += "|hyaluronic|ceramide|hydration"
-    if any("aging" in c or "fine line" in c for c in concerns):
-        keywords += "|retinol|firming|anti-aging"
-    keywords = keywords.strip('|')
-
-    candidates = filtered_df[
-        filtered_df['name'].str.contains(r'serum|ampoule|treatment|essence|booster', case=False, regex=True, na=False) |
-        filtered_df['notes'].str.contains(r'serum|ampoule|treatment|targeted|spot|overnight', case=False, regex=True, na=False)
-    ]
-    if keywords:
-        candidates = candidates[
-            candidates['key_actives'].str.contains(keywords, case=False, na=False) |
-            candidates['notes'].str.contains(keywords, case=False, na=False)
-        ]
-    if candidates.empty:
-        return "Targeted serum", None
-    row = candidates.sample(1).iloc[0]
-    caution = get_caution_note(row, is_sensitive)
-    return (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
-    ), row['product_id']
-
-def pick_moisturizer(filtered_df, is_sensitive):
-    candidates = filtered_df[
-        filtered_df['name'].str.contains(r'moisturizer|cream|lotion|night cream|gel cream|hydrator', case=False, regex=True, na=False) |
-        filtered_df['notes'].str.contains(r'moisturizer|cream|lotion|night cream|hydrate|moisture|daily moisturizer', case=False, regex=True, na=False)
-    ]
-    if candidates.empty:
-        return "Moisturizer", None
-    row = candidates.sample(1).iloc[0]
-    caution = get_caution_note(row, is_sensitive)
-    return (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
-    ), row['product_id']
-
-def pick_protect(filtered_df, is_sensitive):
-    candidates = filtered_df[
-        filtered_df['name'].str.contains(r'spf|sunscreen|uv|protect', case=False, regex=True, na=False) |
-        filtered_df['notes'].str.contains(r'spf|sunscreen|uv|protect|reapply', case=False, regex=True, na=False)
-    ]
-    if candidates.empty:
-        return "Broad-spectrum SPF 50+ every morning", None
-    row = candidates.sample(1).iloc[0]
-    caution = get_caution_note(row, is_sensitive)
-    return (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
-    ), row['product_id']
+    )
+    return details, row['product_id']
 
 # Main routine builder
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
@@ -239,11 +241,11 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
         return {}
 
     routine = {}
-    routine['Cleanse'] = pick_cleanser(filtered, is_sensitive)
-    routine['Tone'] = pick_toner(filtered, is_sensitive)
-    routine['Treat'] = pick_treat(filtered, concerns, is_sensitive)
-    routine['Moisturize'] = pick_moisturizer(filtered, is_sensitive)
-    routine['Protect'] = pick_protect(filtered, is_sensitive)
+    routine['Cleanse'] = pick_product(filtered, 'Cleanse', "Gentle cleanser", is_sensitive, concerns)
+    routine['Tone'] = pick_product(filtered, 'Tone', "Hydrating toner", is_sensitive, concerns)
+    routine['Treat'] = pick_product(filtered, 'Treat', "Targeted serum", is_sensitive, concerns)
+    routine['Moisturize'] = pick_product(filtered, 'Moisturize', "Moisturizer", is_sensitive, concerns)
+    routine['Protect'] = pick_product(filtered, 'Protect', "Broad-spectrum SPF 50+ every morning", is_sensitive, concerns)
 
     return routine
 

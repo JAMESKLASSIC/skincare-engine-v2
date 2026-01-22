@@ -314,12 +314,155 @@ if submitted:
                 for step, (details, _) in body_routine.items():
                     st.markdown(f"**{step}**  \n{details}")
 
-        st.markdown("---")
-        st.subheader("🌟 Your Next Skin Goals")
-        st.write("• Crystal clear skin")
-        st.write("• Natural glow")
-        st.write("• Youthful bounce")
-        st.success("Come back in 4–8 weeks for your upgraded routine. The best is coming! 🔜")
+# ────────────────────────────────────────────────
+# Enhanced personalized skin goals
+# ────────────────────────────────────────────────
+
+NEXT_SKIN_GOALS = {
+    # Single concerns
+    "acne / breakouts": [
+        "Visibly clearer skin with fewer active breakouts",
+        "Reduced redness, inflammation and post-blemish marks",
+        "Balanced oil production without over-drying",
+        "Calmer, less reactive complexion",
+        "Smoother texture and minimized pore appearance"
+    ],
+    "dark spots / uneven tone / melasma": [
+        "Visibly more even skin tone",
+        "Faded dark spots, sun spots and post-inflammatory marks",
+        "Brighter, more luminous complexion",
+        "Improved clarity and uniformity",
+        "Prevention of new pigmentation with protection"
+    ],
+    "dryness / dehydration": [
+        "Deep, long-lasting hydration – no more tightness",
+        "Plump, supple skin with restored moisture",
+        "Stronger skin barrier – fewer dry patches",
+        "Comfortable, soft feel all day",
+        "Healthy, dewy radiance from within"
+    ],
+    "texture / rough skin": [
+        "Noticeably smoother, more refined surface",
+        "Reduced roughness, bumps and sandpaper feel",
+        "Visibly improved micro-texture",
+        "Even, polished-looking skin",
+        "Silky, comfortable touch"
+    ],
+    "aging / fine lines": [
+        "Visibly firmer, more lifted contours",
+        "Reduced appearance of fine lines & wrinkles",
+        "Smoother texture and improved elasticity",
+        "Plumper, more youthful-looking volume",
+        "Healthier, resilient skin"
+    ],
+    "sensitivity / irritation": [
+        "Calmer, less reactive skin daily",
+        "Significant reduction in redness & stinging",
+        "Stronger tolerance to triggers",
+        "Comfortable, soothed feeling",
+        "Restored barrier – fewer flare-ups"
+    ],
+    "dull skin": [
+        "Brighter, more radiant complexion",
+        "Healthy, fresh-looking glow",
+        "Reduced ashy or tired appearance",
+        "Visible luminosity all day",
+        "Awake, energized skin tone"
+    ],
+    "damaged barrier": [
+        "Strong, intact skin barrier",
+        "Less sensitivity & reactivity",
+        "Better moisture retention",
+        "Calmer, more resilient skin",
+        "Healthy bounce and comfort restored"
+    ],
+
+    # Pre-defined common combinations
+    "dryness / dehydration+dull skin": [
+        "Deep hydration + visible inner glow",
+        "Plump, dewy skin that looks rested",
+        "Strong moisture barrier + healthy radiance",
+        "Soft, luminous complexion without tightness"
+    ],
+    "dryness / dehydration+texture / rough skin": [
+        "Deep hydration + dramatically smoother texture",
+        "Plump, soft skin with reduced roughness",
+        "Strong barrier + silky touch",
+        "Even, comfortable surface"
+    ],
+    "acne / breakouts+dull skin": [
+        "Clearer skin + brighter, healthier glow",
+        "Fewer breakouts + reduced post-blemish marks",
+        "Balanced oil + even tone",
+        "Calmer complexion + visible radiance"
+    ],
+    "aging / fine lines+dryness / dehydration": [
+        "Firmer skin + deep lasting hydration",
+        "Reduced fine lines + plump, supple feel",
+        "Improved elasticity + strong moisture barrier",
+        "Youthful bounce + comfortable softness"
+    ],
+
+    # Fallback
+    "default": [
+        "Healthier, more balanced skin overall",
+        "Visible improvement in your main concerns",
+        "Stronger skin resilience & comfort",
+        "Natural, confident glow from within"
+    ]
+}
+
+def get_next_skin_goals(concerns: list) -> list:
+    """
+    Returns 4–5 personalized skin goals.
+    Handles single concern, common combinations, or fallback.
+    """
+    if not concerns:
+        return NEXT_SKIN_GOALS["default"][:4]
+
+    # Normalize
+    normalized = [c.lower().strip() for c in concerns]
+
+    # Single concern
+    if len(normalized) == 1:
+        key = normalized[0]
+        return NEXT_SKIN_GOALS.get(key, NEXT_SKIN_GOALS["default"])[:5]
+
+    # Try two-concern combo first (most common)
+    normalized.sort(key=len, reverse=True)  # longer/more specific first
+    combo_key = "+".join(normalized[:2])
+    if combo_key in NEXT_SKIN_GOALS:
+        return NEXT_SKIN_GOALS[combo_key][:5]
+
+    # Multi-concern fallback: primary + shared
+    primary = normalized[0]
+    goals = NEXT_SKIN_GOALS.get(primary, NEXT_SKIN_GOALS["default"])[:3]
+
+    # Add one shared motivational goal
+    shared = [
+        "Stronger, more resilient skin barrier",
+        "Comfortable, confident daily feel",
+        "Visible progress with consistency",
+        "Healthier, balanced skin overall"
+    ]
+    goals.append(shared[0])  # or random.choice(shared)
+
+    return goals[:5]
+
+# ────────────────────────────────────────────────
+# Replace your current goals section with this
+# (put it right after the routine display)
+# ────────────────────────────────────────────────
+
+st.markdown("---")
+st.subheader("🌟 Your Next Skin Goals")
+
+goals = get_next_skin_goals(concerns)
+
+for goal in goals:
+    st.markdown(f"• **{goal}**")
+
+st.success("Come back in 4–8 weeks for your upgraded routine. The best is coming! 🔜")
 
 # Shopping mode
 st.markdown("---")
@@ -340,3 +483,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

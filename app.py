@@ -10,6 +10,20 @@ if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
 # ────────────────────────────────────────────────
+# Safe sidebar navigation – always visible, no startup crash
+# ────────────────────────────────────────────────
+with st.sidebar.container():
+    st.title("Navigation")
+    
+    # Generate new routine (resets form)
+    if st.button("Generate New Routine", type="primary"):
+        st.rerun()
+    
+    # Track progress – only switches when clicked
+    if st.button("Track Progress / Update Routine"):
+        st.switch_page("pages/1_Progress_Tracker.py")
+
+# ────────────────────────────────────────────────
 # Load inventory
 # ────────────────────────────────────────────────
 st.subheader("Load Product Inventory")
@@ -54,7 +68,7 @@ if 'category' not in df.columns:
     df['category'] = ""
 
 # ────────────────────────────────────────────────
-# Helper functions
+# Helper functions (your existing ones – keep as-is)
 # ────────────────────────────────────────────────
 
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
@@ -76,7 +90,6 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Concern keyword mapping
 CONCERN_KEYWORDS = {
     "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
     "dark spots / uneven tone / melasma": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
@@ -88,7 +101,6 @@ CONCERN_KEYWORDS = {
     "damaged barrier": "barrier|ceramide|repair|restore"
 }
 
-# Category to step mapping (your exact wordings)
 CATEGORY_MAPPING = {
     'Cleanse': [
         "Acne Treatment / Cleanser",
@@ -163,16 +175,13 @@ CATEGORY_MAPPING = {
 def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = df.copy()
 
-    # Area filter
     if area == "Face":
         filtered = filtered[~filtered['name'].str.lower().str.contains('body|intimate|feminine|femfresh', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
 
-    # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
 
-    # Skin type
     type_pattern = 'All'
     if skin_type == "Oily":
         type_pattern += '|Oily|Acne-prone'
@@ -180,7 +189,6 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns (secondary boost)
     if concerns:
         keep_rows = pd.Series(False, index=filtered.index)
         for concern in concerns:
@@ -208,7 +216,6 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
     if candidates.empty:
         return fallback_text, None
 
-    # Secondary boost: score products by concern relevance
     if concerns:
         candidates = candidates.copy()
         candidates['concern_score'] = 0
@@ -223,7 +230,6 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
                 )
         candidates = candidates.sort_values('concern_score', ascending=False)
 
-    # Take top match
     row = candidates.iloc[0]
 
     caution = get_caution_note(row, is_sensitive)
@@ -249,101 +255,6 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     routine['Protect'] = pick_product(filtered, 'Protect', "Broad-spectrum SPF 50+ every morning", is_sensitive, concerns)
 
     return routine
-
-# ────────────────────────────────────────────────
-# Enhanced personalized skin goals
-# ────────────────────────────────────────────────
-
-NEXT_SKIN_GOALS = {
-    "acne / breakouts": [
-        "Visibly clearer skin with fewer active breakouts",
-        "Reduced redness, inflammation and post-blemish marks",
-        "Balanced oil production without over-drying",
-        "Calmer, less reactive complexion",
-        "Smoother texture and minimized pore appearance"
-    ],
-    "dark spots / uneven tone / melasma": [
-        "Visibly more even skin tone",
-        "Faded dark spots, sun spots and post-inflammatory marks",
-        "Brighter, more luminous complexion",
-        "Improved clarity and uniformity",
-        "Prevention of new pigmentation with protection"
-    ],
-    "dryness / dehydration": [
-        "Deep, long-lasting hydration – no more tightness",
-        "Plump, supple skin with restored moisture",
-        "Stronger skin barrier – fewer dry patches",
-        "Comfortable, soft feel all day",
-        "Healthy, dewy radiance from within"
-    ],
-    "texture / rough skin": [
-        "Noticeably smoother, more refined surface",
-        "Reduced roughness, bumps and sandpaper feel",
-        "Visibly improved micro-texture",
-        "Even, polished-looking skin",
-        "Silky, comfortable touch"
-    ],
-    "aging / fine lines": [
-        "Visibly firmer, more lifted contours",
-        "Reduced appearance of fine lines & wrinkles",
-        "Smoother texture and improved elasticity",
-        "Plumper, more youthful-looking volume",
-        "Healthier, resilient skin"
-    ],
-    "sensitivity / irritation": [
-        "Calmer, less reactive skin daily",
-        "Significant reduction in redness & stinging",
-        "Stronger tolerance to triggers",
-        "Comfortable, soothed feeling",
-        "Restored barrier – fewer flare-ups"
-    ],
-    "dull skin": [
-        "Brighter, more radiant complexion",
-        "Healthy, fresh-looking glow",
-        "Reduced ashy or tired appearance",
-        "Visible luminosity all day",
-        "Awake, energized skin tone"
-    ],
-    "damaged barrier": [
-        "Strong, intact skin barrier",
-        "Less sensitivity & reactivity",
-        "Better moisture retention",
-        "Calmer, more resilient skin",
-        "Healthy bounce and comfort restored"
-    ],
-    # Pre-defined common combinations
-    "dryness / dehydration+dull skin": [
-        "Deep hydration + visible inner glow",
-        "Plump, dewy skin that looks rested",
-        "Strong moisture barrier + healthy radiance",
-        "Soft, luminous complexion without tightness"
-    ],
-    "dryness / dehydration+texture / rough skin": [
-        "Deep hydration + dramatically smoother texture",
-        "Plump, soft skin with reduced roughness",
-        "Strong barrier + silky touch",
-        "Even, comfortable surface"
-    ],
-    "acne / breakouts+dull skin": [
-        "Clearer skin + brighter, healthier glow",
-        "Fewer breakouts + reduced post-blemish marks",
-        "Balanced oil + even tone",
-        "Calmer complexion + visible radiance"
-    ],
-    "aging / fine lines+dryness / dehydration": [
-        "Firmer skin + deep lasting hydration",
-        "Reduced fine lines + plump, supple feel",
-        "Improved elasticity + strong moisture barrier",
-        "Youthful bounce + comfortable softness"
-    ],
-    # Fallback
-    "default": [
-        "Healthier, more balanced skin overall",
-        "Visible improvement in your main concerns",
-        "Stronger skin resilience & comfort",
-        "Natural, confident glow from within"
-    ]
-}
 
 def get_next_skin_goals(concerns):
     if not concerns:
@@ -373,7 +284,7 @@ def get_next_skin_goals(concerns):
     return goals[:5]
 
 # ────────────────────────────────────────────────
-# Main form
+# Main form – NEW ROUTINE GENERATION
 # ────────────────────────────────────────────────
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
@@ -420,19 +331,12 @@ if submitted:
         st.warning("Complex concerns + sensitivity — seek professional advice.")
     else:
         routine = build_routine(df, skin_type, concerns, is_sensitive_val, is_pregnant_val, using_prescription_val, area)
-        
-        st.write("DEBUG: Routine keys:", list(routine.keys()) if routine else "No routine generated")
 
         st.success("Here's your personalized routine:")
         for step, (details, _) in routine.items():
             st.markdown(f"**{step}**  \n{details}")
 
         st.info("Start one new product at a time. Patch test. Be consistent.")
-
-        # Button to progress page
-        st.markdown("---")
-        if st.button("I've started this routine → Track my progress & get follow-up advice"):
-            st.switch_page("pages/1_Progress_Tracker.py")
 
         if area == "Face":
             st.markdown("---")
@@ -443,7 +347,7 @@ if submitted:
                 for step, (details, _) in body_routine.items():
                     st.markdown(f"**{step}**  \n{details}")
 
-        # ── Personalized goals ────────────────────────────────────────────────
+        # Personalized goals
         st.markdown("---")
         st.subheader("🌟 Your Next Skin Goals")
 
@@ -473,6 +377,3 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-
-
-

@@ -420,6 +420,8 @@ if submitted:
         st.warning("Complex concerns + sensitivity — seek professional advice.")
     else:
         routine = build_routine(df, skin_type, concerns, is_sensitive_val, is_pregnant_val, using_prescription_val, area)
+        
+        st.write("DEBUG: Routine keys:", list(routine.keys()) if routine else "No routine generated")
 
         st.success("Here's your personalized routine:")
         for step, (details, _) in routine.items():
@@ -471,4 +473,5 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+
 

@@ -10,6 +10,17 @@ if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
 # ────────────────────────────────────────────────
+# Permanent sidebar navigation (always visible)
+# ────────────────────────────────────────────────
+st.sidebar.title("Navigation")
+
+if st.sidebar.button("Generate New Routine", type="primary"):
+    st.rerun()  # Refresh to clear form and start new
+
+if st.sidebar.button("Track Progress / Update Routine"):
+    st.switch_page("pages/1_Progress_Tracker.py")
+
+# ────────────────────────────────────────────────
 # Load inventory
 # ────────────────────────────────────────────────
 st.subheader("Load Product Inventory")
@@ -44,7 +55,7 @@ df['notes'] = df['notes'].astype(str).replace({
     r'â': "'",
     r'â|â': '"',
     r'â¢': '•',
-    r'â™': '™',
+    r'â¢': '™',
     r'â¦': '…'
 }, regex=True)
 

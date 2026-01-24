@@ -427,6 +427,11 @@ if submitted:
 
         st.info("Start one new product at a time. Patch test. Be consistent.")
 
+        # Button to progress page
+        st.markdown("---")
+        if st.button("I've started this routine → Track my progress & get follow-up advice"):
+            st.switch_page("pages/1_Progress_Tracker.py")
+
         if area == "Face":
             st.markdown("---")
             want_body = st.radio("Would you like matching body products for your face concern?", ("No thanks", "Yes, show me"))
@@ -466,3 +471,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

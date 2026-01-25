@@ -96,7 +96,7 @@ def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False
         return False
     if is_sensitive:
         safe_val = row.get('safe_for_sensitive', '').strip().lower()
-        if 'no' in safe_val:
+        if 'no' in safe_val and 'yes with caution' not in safe_val:  # Loosened: allow "Yes with caution"
             return False
     return True
 
@@ -108,9 +108,8 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Concern keyword mapping
 CONCERN_KEYWORDS = {
-    "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
+    "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control|pimple|zits|bha|clogged|blackhead|whitehead|sebum|mattifying|anti-acne|blemish control",
     "dark spots / uneven tone / melasma": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
     "dryness / dehydration": "hydration|hyaluronic|moisturizing|dryness|ceramide|glycerin|plumping|humectant",
     "texture / rough skin": "texture|rough|exfoliation|smoothing|glycolic|lactic",
@@ -120,7 +119,6 @@ CONCERN_KEYWORDS = {
     "damaged barrier": "barrier|ceramide|repair|restore"
 }
 
-# Category to step mapping
 CATEGORY_MAPPING = {
     'Cleanse': [
         "Acne Treatment / Cleanser",
@@ -209,10 +207,10 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
+    # Loosened concern filter: OR logic + optional (keep all if no match)
     if concerns:
         keep_rows = pd.Series(False, index=filtered.index)
         for concern in concerns:
-            concern = concern.lower().strip()
             k = CONCERN_KEYWORDS.get(concern, "")
             if k:
                 keep_rows |= (
@@ -221,11 +219,16 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
                     filtered['key_actives'].str.contains(k, case=False, na=False) |
                     filtered['notes'].str.contains(k, case=False, na=False)
                 )
-        filtered = filtered[keep_rows]
+        if keep_rows.any():  # Only filter if at least one concern matches something
+            filtered = filtered[keep_rows]
+        # Else keep all products (makes concern filter optional)
 
     if filtered.empty:
         st.warning("No safe products match your profile.")
         return pd.DataFrame()
+
+    # Debug: show how many products survived
+    st.write(f"DEBUG: Products after all filters: {len(filtered)}")
 
     return filtered
 
@@ -277,7 +280,7 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
     return routine
 
 # ────────────────────────────────────────────────
-# Enhanced personalized skin goals – MOVED UP so function can see it
+# Enhanced personalized skin goals – defined before function
 # ────────────────────────────────────────────────
 
 NEXT_SKIN_GOALS = {
@@ -337,7 +340,6 @@ NEXT_SKIN_GOALS = {
         "Calmer, more resilient skin",
         "Healthy bounce and comfort restored"
     ],
-    # Pre-defined common combinations
     "dryness / dehydration+dull skin": [
         "Deep hydration + visible inner glow",
         "Plump, dewy skin that looks rested",
@@ -362,7 +364,6 @@ NEXT_SKIN_GOALS = {
         "Improved elasticity + strong moisture barrier",
         "Youthful bounce + comfortable softness"
     ],
-    # Fallback
     "default": [
         "Healthier, more balanced skin overall",
         "Visible improvement in your main concerns",

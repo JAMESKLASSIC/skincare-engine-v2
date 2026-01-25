@@ -1,6 +1,17 @@
 import streamlit as st
 import pandas as pd
 
+st.set_page_config(
+    page_title="Skin Recommendation Engine",
+    layout="centered",
+    initial_sidebar_state="expanded",  # optional: sidebar starts open
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
+)
+
 st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
@@ -377,3 +388,4 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
+

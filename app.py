@@ -1,13 +1,45 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
+st.set_page_config(
+    page_title="Skin Recommendation Engine",
+    layout="centered",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
+)
+
+# Hide default auto-generated page navigation links in sidebar
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none !important;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("Welcome to Skin Recommendation Engine")
 
 demo_mode = st.checkbox("Demo Mode (hide for real users)", value=True)
 if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
+
+# ────────────────────────────────────────────────
+# Safe sidebar navigation
+# ────────────────────────────────────────────────
+with st.sidebar:
+    st.title("Navigation")
+    
+    if st.button("Generate New Routine", type="primary"):
+        st.rerun()
+    
+    if st.button("Track Progress / Update Routine"):
+        st.switch_page("pages/1_Progress_Tracker.py")
 
 # ────────────────────────────────────────────────
 # Load inventory
@@ -168,6 +200,7 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         filtered = filtered[~filtered['name'].str.lower().str.contains('body|intimate|feminine|femfresh', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
+    # For "Both" – no additional filter
 
     # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
@@ -180,7 +213,7 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns (secondary boost)
+    # Concerns (secondary boost) – your original logic
     if concerns:
         keep_rows = pd.Series(False, index=filtered.index)
         for concern in concerns:
@@ -436,7 +469,7 @@ if submitted:
                 for step, (details, _) in body_routine.items():
                     st.markdown(f"**{step}**  \n{details}")
 
-        # ── Personalized goals ────────────────────────────────────────────────
+        # Personalized goals
         st.markdown("---")
         st.subheader("🌟 Your Next Skin Goals")
 

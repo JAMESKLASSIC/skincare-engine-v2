@@ -108,7 +108,6 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
-# Concern keyword mapping
 CONCERN_KEYWORDS = {
     "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
     "dark spots / uneven tone / melasma": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
@@ -120,7 +119,6 @@ CONCERN_KEYWORDS = {
     "damaged barrier": "barrier|ceramide|repair|restore"
 }
 
-# Category to step mapping (your exact wordings)
 CATEGORY_MAPPING = {
     'Cleanse': [
         "Acne Treatment / Cleanser",
@@ -200,7 +198,6 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         filtered = filtered[~filtered['name'].str.lower().str.contains('body|intimate|feminine|femfresh', na=False)]
     elif area == "Body":
         filtered = filtered[filtered['name'].str.lower().str.contains('body', na=False)]
-    # For "Both" – no additional filter
 
     # Safety
     filtered = filtered[filtered.apply(lambda row: is_safe(row, is_sensitive, is_pregnant, using_prescription), axis=1)]
@@ -213,20 +210,8 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
         type_pattern += '|Dry'
     filtered = filtered[filtered['suitable_skin_types'].str.contains(type_pattern, case=False, na=True)]
 
-    # Concerns (secondary boost) – your original logic
-    if concerns:
-        keep_rows = pd.Series(False, index=filtered.index)
-        for concern in concerns:
-            concern = concern.lower().strip()
-            k = CONCERN_KEYWORDS.get(concern, "")
-            if k:
-                keep_rows |= (
-                    filtered['primary_target'].str.contains(k, case=False, na=False) |
-                    filtered['secondary_target'].str.contains(k, case=False, na=False) |
-                    filtered['key_actives'].str.contains(k, case=False, na=False) |
-                    filtered['notes'].str.contains(k, case=False, na=False)
-                )
-        filtered = filtered[keep_rows]
+    # IMPORTANT: No concern keyword filtering here anymore
+    # We only apply concern relevance inside pick_product for 'Treat' step
 
     if filtered.empty:
         st.warning("No safe products match your profile.")
@@ -236,14 +221,13 @@ def get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_pr
 
 def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=None):
     target_categories = CATEGORY_MAPPING.get(step_name, [])
-    candidates = filtered_df[filtered_df['category'].isin(target_categories)]
+    candidates = filtered_df[filtered_df['category'].isin(target_categories)].copy()
 
     if candidates.empty:
         return fallback_text, None
 
-    # Secondary boost: score products by concern relevance
-    if concerns:
-        candidates = candidates.copy()
+    # Apply concern scoring ONLY for 'Treat' step
+    if step_name == 'Treat' and concerns:
         candidates['concern_score'] = 0
         for concern in concerns:
             k = CONCERN_KEYWORDS.get(concern, "")
@@ -254,20 +238,27 @@ def pick_product(filtered_df, step_name, fallback_text, is_sensitive, concerns=N
                     candidates['key_actives'].str.contains(k, case=False, na=False).astype(int) +
                     candidates['notes'].str.contains(k, case=False, na=False).astype(int)
                 )
-        candidates = candidates.sort_values('concern_score', ascending=False)
+        # Stable sort: concern_score desc + product_id asc
+        candidates = candidates.sort_values(
+            by=['concern_score', 'product_id'],
+            ascending=[False, True]
+        )
+    else:
+        # For base steps (Cleanse, Tone, Moisturize, Protect): stable alphabetical / id sort
+        candidates = candidates.sort_values(by='product_id', ascending=True)
 
-    # Take top match
-    row = candidates.iloc[0]
-
-    caution = get_caution_note(row, is_sensitive)
-    details = (
-        f"**{row['product_id']} — {row['name']}**  \n"
-        f"**Recommended time:** {row.get('recommended_time', 'Anytime')}  \n"
-        f"**Max frequency:** {row.get('max_frequency', 'Daily')}  \n"
-        f"**How to use:** {row.get('step', 'Follow product instructions')}  \n"
-        f"**Notes:** {row.get('notes', 'No extra notes')}{caution}"
+    # Top recommendation
+    top_row = candidates.iloc[0]
+    caution = get_caution_note(top_row, is_sensitive)
+    top_details = (
+        f"**{top_row['product_id']} — {top_row['name']}**  \n"
+        f"**Recommended time:** {top_row.get('recommended_time', 'Anytime')}  \n"
+        f"**Max frequency:** {top_row.get('max_frequency', 'Daily')}  \n"
+        f"**How to use:** {top_row.get('step', 'Follow product instructions')}  \n"
+        f"**Notes:** {top_row.get('notes', 'No extra notes')}{caution}"
     )
-    return details, row['product_id']
+
+    return top_details, top_row['product_id']
 
 def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area):
     filtered = get_filtered_df(df, skin_type, concerns, is_sensitive, is_pregnant, using_prescription, area)

@@ -4,7 +4,6 @@ import pandas as pd
 st.set_page_config(
     page_title="Skin Recommendation Engine",
     layout="centered",
-    initial_sidebar_state="expanded",  # optional: sidebar starts open
     menu_items={
         'Get Help': None,
         'Report a bug': None,
@@ -12,22 +11,17 @@ st.set_page_config(
     }
 )
 
-# Hide default page navigation (removes "app" and "Progress Tracker" links)
+# Hide default auto-generated page navigation links in sidebar
 st.markdown(
     """
     <style>
         [data-testid="stSidebarNav"] {
             display: none !important;
         }
-        section[data-testid="stSidebar"] > div > div:first-child {
-            padding-top: 1rem;
-        }
     </style>
     """,
     unsafe_allow_html=True
 )
-
-st.set_page_config(page_title="Skin Recommendation Engine", layout="centered")
 
 st.title("Welcome to Skin Recommendation Engine")
 
@@ -36,16 +30,14 @@ if demo_mode:
     st.info("This demo is using a seller's uploaded inventory. In production, this would be integrated directly into your store.")
 
 # ────────────────────────────────────────────────
-# Safe sidebar navigation – always visible, no startup crash
+# Safe sidebar navigation
 # ────────────────────────────────────────────────
-with st.sidebar.container():
+with st.sidebar:
     st.title("Navigation")
     
-    # Generate new routine (resets form)
     if st.button("Generate New Routine", type="primary"):
         st.rerun()
     
-    # Track progress – only switches when clicked
     if st.button("Track Progress / Update Routine"):
         st.switch_page("pages/1_Progress_Tracker.py")
 
@@ -94,7 +86,7 @@ if 'category' not in df.columns:
     df['category'] = ""
 
 # ────────────────────────────────────────────────
-# Helper functions (your existing ones – keep as-is)
+# Helper functions
 # ────────────────────────────────────────────────
 
 def is_safe(row, is_sensitive=False, is_pregnant=False, using_prescription=False):
@@ -116,6 +108,7 @@ def get_caution_note(row, is_sensitive):
         return " **(Use with caution — patch test recommended; may cause mild irritation in very sensitive skin)**"
     return ""
 
+# Concern keyword mapping
 CONCERN_KEYWORDS = {
     "acne": "acne|blemish|pore|salicylic|benzoyl|breakout|niacinamide|oil control",
     "dark spots / uneven tone / melasma": "brightening|even tone|fade spots|whitening|hyperpigmentation|dark spots|melasma|pigment|arbutin|kojic|niacinamide|vitamin c|tranexamic|azelaic|licorice|discoloration|spot fading|tone correcting",
@@ -127,6 +120,7 @@ CONCERN_KEYWORDS = {
     "damaged barrier": "barrier|ceramide|repair|restore"
 }
 
+# Category to step mapping
 CATEGORY_MAPPING = {
     'Cleanse': [
         "Acne Treatment / Cleanser",
@@ -282,6 +276,101 @@ def build_routine(df, skin_type, concerns, is_sensitive, is_pregnant, using_pres
 
     return routine
 
+# ────────────────────────────────────────────────
+# Enhanced personalized skin goals – MOVED UP so function can see it
+# ────────────────────────────────────────────────
+
+NEXT_SKIN_GOALS = {
+    "acne / breakouts": [
+        "Visibly clearer skin with fewer active breakouts",
+        "Reduced redness, inflammation and post-blemish marks",
+        "Balanced oil production without over-drying",
+        "Calmer, less reactive complexion",
+        "Smoother texture and minimized pore appearance"
+    ],
+    "dark spots / uneven tone / melasma": [
+        "Visibly more even skin tone",
+        "Faded dark spots, sun spots and post-inflammatory marks",
+        "Brighter, more luminous complexion",
+        "Improved clarity and uniformity",
+        "Prevention of new pigmentation with protection"
+    ],
+    "dryness / dehydration": [
+        "Deep, long-lasting hydration – no more tightness",
+        "Plump, supple skin with restored moisture",
+        "Stronger skin barrier – fewer dry patches",
+        "Comfortable, soft feel all day",
+        "Healthy, dewy radiance from within"
+    ],
+    "texture / rough skin": [
+        "Noticeably smoother, more refined surface",
+        "Reduced roughness, bumps and sandpaper feel",
+        "Visibly improved micro-texture",
+        "Even, polished-looking skin",
+        "Silky, comfortable touch"
+    ],
+    "aging / fine lines": [
+        "Visibly firmer, more lifted contours",
+        "Reduced appearance of fine lines & wrinkles",
+        "Smoother texture and improved elasticity",
+        "Plumper, more youthful-looking volume",
+        "Healthier, resilient skin"
+    ],
+    "sensitivity / irritation": [
+        "Calmer, less reactive skin daily",
+        "Significant reduction in redness & stinging",
+        "Stronger tolerance to triggers",
+        "Comfortable, soothed feeling",
+        "Restored barrier – fewer flare-ups"
+    ],
+    "dull skin": [
+        "Brighter, more radiant complexion",
+        "Healthy, fresh-looking glow",
+        "Reduced ashy or tired appearance",
+        "Visible luminosity all day",
+        "Awake, energized skin tone"
+    ],
+    "damaged barrier": [
+        "Strong, intact skin barrier",
+        "Less sensitivity & reactivity",
+        "Better moisture retention",
+        "Calmer, more resilient skin",
+        "Healthy bounce and comfort restored"
+    ],
+    # Pre-defined common combinations
+    "dryness / dehydration+dull skin": [
+        "Deep hydration + visible inner glow",
+        "Plump, dewy skin that looks rested",
+        "Strong moisture barrier + healthy radiance",
+        "Soft, luminous complexion without tightness"
+    ],
+    "dryness / dehydration+texture / rough skin": [
+        "Deep hydration + dramatically smoother texture",
+        "Plump, soft skin with reduced roughness",
+        "Strong barrier + silky touch",
+        "Even, comfortable surface"
+    ],
+    "acne / breakouts+dull skin": [
+        "Clearer skin + brighter, healthier glow",
+        "Fewer breakouts + reduced post-blemish marks",
+        "Balanced oil + even tone",
+        "Calmer complexion + visible radiance"
+    ],
+    "aging / fine lines+dryness / dehydration": [
+        "Firmer skin + deep lasting hydration",
+        "Reduced fine lines + plump, supple feel",
+        "Improved elasticity + strong moisture barrier",
+        "Youthful bounce + comfortable softness"
+    ],
+    # Fallback
+    "default": [
+        "Healthier, more balanced skin overall",
+        "Visible improvement in your main concerns",
+        "Stronger skin resilience & comfort",
+        "Natural, confident glow from within"
+    ]
+}
+
 def get_next_skin_goals(concerns):
     if not concerns:
         return NEXT_SKIN_GOALS["default"][:4]
@@ -310,7 +399,7 @@ def get_next_skin_goals(concerns):
     return goals[:5]
 
 # ────────────────────────────────────────────────
-# Main form – NEW ROUTINE GENERATION
+# Main form
 # ────────────────────────────────────────────────
 with st.form("skin_form"):
     st.subheader("How would you describe your skin?")
@@ -403,5 +492,3 @@ if query:
                 st.write(f"**Notes**: {p.get('notes', 'No extra notes')}")
 
 st.caption("Thank you for trusting us with your skin 🌿")
-
-
